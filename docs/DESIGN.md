@@ -1,0 +1,146 @@
+# Fairtech Gate Register — Design (Step 1)
+
+Standalone app for the gate at two Fairtech Engineers units: **Dehu (Pune)** and **Savli (Baroda)**.
+Stack: React (Vite, TypeScript, Tailwind) PWA on Vercel + a fresh, separate Supabase project.
+
+Timezone everywhere: Asia/Kolkata.
+
+---
+
+## 1. Data model (Supabase / Postgres)
+
+Conventions
+- Every guard-facing table has `unit_id` and is protected by Row Level Security (RLS).
+- Every guard-created row has `client_id uuid UNIQUE` (generated on the phone) so an offline entry synced twice is stored once.
+- Timestamps (`in_at`, `out_at`, `at`) are set by database triggers to `now()`. Anything the phone sends for these columns is overwritten.
+- `device_at` = phone clock at the moment of tapping. Stored for information only, shown in admin when `offline = true`.
+- Photo columns hold a storage path, never a URL. URLs are signed on demand (1 hour).
+
+### Reference tables (admin-managed)
+
+| Table | Columns |
+|---|---|
+| `units` | `id text PK` (`dehu`, `savli`), `name`, `default_language` (`mr` / `gu`), `shift_start time`, `unit_head_name`, `unit_head_phone`, `report_email`, `active` |
+| `guards` | `id uuid`, `unit_id`, `name`, `pin_hash` (bcrypt, 4 digits), `language` (nullable, overrides unit default), `active` |
+| `devices` | `id uuid` (generated on the phone, stored in localStorage), `unit_id`, `label`, `registered_at`, `last_seen_at`, `active` |
+| `contractors` | `id`, `unit_id`, `name`, `active` |
+| `staff` | `id`, `unit_id`, `name`, `phone`, `active` — the "whom to meet" list |
+| `labourers` | `id`, `unit_id`, `name`, `contractor_id`, `photo_path`, `status` (`approved` / `pending` / `rejected` / `inactive`), `created_by_guard_id`, `created_at` |
+| `emergency_contacts` | `id`, `unit_id`, `label`, `phone`, `sort_order` |
+| `blacklist` | `id`, `unit_id` (null = both units), `kind` (`person` / `plate`), `labourer_id`, `name`, `plate` (normalised: uppercase, no spaces), `reason`, `active`, `created_at` |
+| `admins` | `user_id uuid PK` (Supabase Auth user), `email` |
+
+### Register tables (guard-created)
+
+| Table | Columns |
+|---|---|
+| `labour_movements` | `id`, `client_id`, `unit_id`, `labourer_id`, `direction` (`in` / `out`), `at` (server), `device_at`, `offline bool`, `guard_id`, `device_id`, `carrying_photo_path` (OUT only, optional), `voided_at`, `void_reason` |
+| `visitors` | `id`, `client_id`, `unit_id`, `name`, `company`, `purpose` (`client` / `supplier` / `transporter` / `government` / `interview` / `other`), `meeting_staff_id`, `persons int` (default 1), `id_type` (`aadhaar` / `dl` / `company_id` / `none`), `photo_path`, `in_at`, `in_guard_id`, `out_at`, `out_guard_id`, `device_at`, `offline`, `device_id`, `voided_at`, `void_reason` |
+| `vehicles` | `id`, `client_id`, `unit_id`, `plate` (normalised), `vehicle_type` (`truck` / `tempo` / `trailer` / `car` / `bike` / `crane_hydra`), `purpose` (`material_in` / `material_out` / `scrap_out` / `empty` / `visitor`), `driver_name`, `plate_photo_path`, `challan_photo_path` (Material In), `loaded_photo_path` + `gatepass_photo_path` (Material Out / Scrap Out), `in_at`, `in_guard_id`, `out_at`, `out_guard_id`, `out_loaded bool`, `out_loaded_photo_path`, `device_at`, `offline`, `device_id`, `voided_at`, `void_reason` |
+| `handovers` | `id`, `client_id`, `unit_id`, `from_guard_id`, `to_guard_id`, `at`, `labour_inside`, `visitors_inside`, `vehicles_inside` |
+| `incidents` | `id`, `client_id`, `unit_id`, `guard_id`, `type` (`theft` / `injury` / `fight` / `fire` / `other`), `note`, `photo_path`, `at`, `notified_at`, `notify_error` |
+| `mistake_reports` | `id`, `client_id`, `unit_id`, `register` (`labour` / `visitor` / `vehicle`), `entry_id`, `reason`, `guard_id`, `at`, `resolved_at`, `resolved_by`, `resolution_note` |
+| `daily_reports` | `id`, `unit_id`, `report_date`, `sent_at`, `error` — one row per unit per day so a failed send is visible |
+
+Database rules enforced by constraints/triggers (not just the UI)
+- `vehicles`: `purpose = material_in` requires `challan_photo_path`; `material_out` / `scrap_out` require both `loaded_photo_path` and `gatepass_photo_path`.
+- `labour_movements`: direction must alternate for that labourer (an IN after an IN is rejected).
+- A visitor / vehicle can be marked OUT only once; OUT sets `out_at = now()`.
+- Guards can INSERT, never UPDATE or DELETE. Marking OUT, handover, and mistake reports go through small database functions (RPC) that only change the allowed columns.
+- "Currently inside" = rows with `out_at IS NULL` (visitors, vehicles) or the labourer's last non-voided movement is `in`.
+
+### Storage
+- One private bucket `photos`. Path: `{unit_id}/{register}/{yyyy-mm}/{uuid}.jpg`.
+- Phone compresses to about 200 KB (max side 1280 px, JPEG) before upload.
+- Access only by signed URL (guard: own unit; admin: all).
+- Nightly job deletes visitor and vehicle photos older than 180 days and blanks the photo columns. Labourer profile photos, incident photos and labour "carrying" photos are kept.
+
+### Auth and unit isolation
+- **Guard**: an Edge Function `guard-login` receives `device_id`, `unit_id` (first login only), `pin`. It checks the PIN against active guards of that unit, locks the device to the unit on first login, and returns a short-lived JWT with claims `role = guard`, `unit_id`, `guard_id`, `device_id`. The JWT refreshes silently in the background; if the phone is offline at expiry the app keeps working from the local queue and refreshes when back online.
+- All RLS policies compare the row's `unit_id` to the JWT's `unit_id`. Changing the URL or the request cannot cross units because the token, not the client, decides the unit.
+- Device to unit lock lives in the `devices` table. Admin can unlock / reassign a device.
+- **Admin**: Supabase Auth email + password. RLS allows everything for a user present in `admins`.
+
+### Scheduled jobs (pg_cron → Edge Functions)
+- 20:00 IST daily: `daily-report` builds one email per unit and sends it (see section 4).
+- 02:00 IST daily: `photo-cleanup` (180-day rule).
+- Immediately on insert into `incidents`: `notify-incident` sends the alert.
+
+---
+
+## 2. Guard screens
+
+All labels come from `src/locales/{en,hi,mr,gu}.json`. Minimum tap target 56 px, dark text on white, large type.
+
+| # | Screen | What is on it |
+|---|---|---|
+| 1 | **Unit select** (first login on this phone only) | Two big buttons: Dehu, Savli. Language toggle. |
+| 2 | **Login** | Guard name buttons? No — just a 4-digit PIN pad (big keys). Language toggle (EN / हिंदी / मराठी / ગુજરાતી). Pending-sync count if any. |
+| 3 | **Home** | Top: *Inside now: N people, N vehicles*, *N pending* sync badge, unit name, guard name. Four full-width buttons with icons: LABOUR, VISITOR, VEHICLE, EMERGENCY. Below: today's entries, newest first, with thumbnail, name/plate, IN/OUT, time. Tap an entry → Entry detail. ⋯ menu: Handover, Incident, Language, Logout. |
+| 4 | **Labour grid** | Search box (name). Grid of photo + name for approved and today's pending labourers of this unit. NEW PERSON button at the bottom (sticky). |
+| 5 | **Labour IN / OUT** | Big photo + name + contractor. One big button: IN or OUT (whichever is next). On OUT, after saving: optional "Carrying something?" → camera → save. Blacklisted person → screen 16 instead. |
+| 6 | **New person** | Camera → name → contractor (buttons) → IN. Person appears in the grid for today, flagged `pending` for admin. |
+| 7 | **Visitor IN** (one step per screen, big Next button) | Camera → name → company (optional, skip button) → purpose (6 buttons) → whom to meet (staff buttons) → ID type (4 buttons) → persons (1, with + / −) → IN. |
+| 8 | **Visitor OUT** | Photo cards of visitors currently inside with time inside → tap → confirm OUT. |
+| 9 | **Vehicle IN** | Camera (number plate) → plate (uppercase, big keyboard; blacklist check on this step) → type (6 buttons) → purpose (5 buttons) → driver name (optional) → extra photos required by purpose (challan; or loaded vehicle + gate pass) → IN. Cannot proceed without the required photos. |
+| 10 | **Vehicle OUT** | Cards of vehicles inside: plate photo, plate, type, purpose, time inside (red after 4 h). Tap → if entered Empty: "Loaded?" Yes/No; Yes requires a photo → OUT. |
+| 11 | **Emergency** (works fully offline) | Count at top. Emergency numbers as big call buttons (unit head, fire, hospital, admin). Then everyone inside with photos: labour, visitors (with persons count), vehicle drivers. |
+| 12 | **Handover** | Shows counts inside (labour / visitors / vehicles). Confirm → next guard's PIN pad → logged, next guard is now logged in. |
+| 13 | **Incident** | Camera → type (5 buttons) → short note (optional) → Send. Alert goes out on sync. |
+| 14 | **Entry detail** | Full photo(s), all fields, time. Button: Report mistake → reason (a few preset buttons + optional text) → sent. Entry shows a "mistake reported" tag; once admin voids it, it shows struck-through. |
+| 15 | **Camera** (shared) | Full-screen capture with Retake / Use. Falls back to the phone's native camera picker if the in-app camera is not allowed. |
+| 16 | **Blacklist warning** | Full-screen red: "Do not allow — call {unit head}" with a Call button. Only way out is Back; nothing is saved. |
+| 17 | **Sync status** (from the pending badge) | List of queued entries and photos, retry button, last sync time. Not needed day-to-day. |
+
+Offline behaviour
+- Everything the guard taps is written to IndexedDB first (rows + photo blobs), then a background sync uploads photos, then rows, in order. Home shows *N pending*.
+- Labourer list, staff list, contractors, emergency contacts, blacklist and "currently inside" are cached locally so all guard screens open offline.
+- The app is a PWA (installable to home screen, opens without browser chrome).
+
+---
+
+## 3. Admin pages (English only, plain)
+
+| Page | Purpose |
+|---|---|
+| Login | Email + password |
+| Live | Both units: inside now, today's entries, pending sync devices, last handover |
+| Labourers | List / add / edit / deactivate, photo upload, contractor. **Pending approvals** tab for NEW PERSON entries: approve, merge into an existing labourer, or reject. |
+| Contractors, Staff | Simple lists per unit |
+| Guards & PINs | Add guard, set/reset 4-digit PIN, language, active |
+| Devices | See phones locked to each unit, unlock / rename / disable |
+| Emergency contacts | Per unit |
+| Blacklist | Add person (pick labourer or type name) or plate, reason, unit or both |
+| Settings | Per unit: shift start time, unit head name/phone, report email; global: incident alert recipients |
+| Mistake reports | Open / resolved; open one → see entry → Void entry (keeps it struck-through) and/or add a corrected entry, add note |
+| Incidents | List with photos, delivery status |
+| Registers | Labour / Visitor / Vehicle / Handover tables with date range + unit filter, photo previews, **Download Excel** |
+| Daily reports | Per unit per day: sent / failed, resend button |
+
+---
+
+## 4. Notifications
+
+- **Daily report** (20:00 IST, per unit, email): labour IN/OUT counts, late entries (first IN after shift start), visitors, vehicles with purpose and photo links (signed, valid 7 days), still inside, incidents, mistake reports, handover done or not.
+- **Incident alert**: email immediately (default). WhatsApp/SMS is possible via Twilio if you want it; it needs a paid account and WhatsApp template approval, so it is left as an option, not the default.
+- Email provider: Resend (free tier is enough for 2 emails a day + incidents). You will need to give me a Resend API key and a verified sender domain or use their test sender.
+
+---
+
+## 5. Things I need you to confirm
+
+1. **Offline timestamp rule.** With server-side time, an entry made offline at 10:00 and synced at 14:00 will be stored as 14:00. I propose: keep the server time as the official `at`, also store the phone's time in `device_at`, mark the row `offline`, and show both in admin/report for offline rows. OK?
+2. **Incident alert channel**: email only (default) or also WhatsApp/SMS via Twilio?
+3. **Guard login flow**: PIN only (no guard picker), 4-digit PINs unique within a unit. Admin sets the PINs. OK?
+4. **Labour "carrying" photos and incident photos are kept**; only visitor and vehicle photos are deleted after 180 days. OK?
+5. **Late entry** = a labourer's first IN of the day after the unit's shift start. OK?
+
+---
+
+## 6. Build plan
+
+| Step | Delivers |
+|---|---|
+| 2 | Supabase schema + RLS + storage + `guard-login`; PWA shell; unit select, login, home, Labour (grid, IN/OUT, new person, carrying photo); offline queue + sync; 4 locale files; admin: login, labourers, contractors, guards, devices |
+| 3 | Visitor, Vehicle, Emergency; admin: staff, emergency contacts |
+| 4 | Handover, incident + alert, blacklist + warning, mistake reports + void, daily report email, Excel exports, photo cleanup job |
