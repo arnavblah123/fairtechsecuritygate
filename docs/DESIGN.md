@@ -11,7 +11,8 @@ Timezone everywhere: Asia/Kolkata.
 
 Conventions
 - Every guard-facing table has `unit_id` and is protected by Row Level Security (RLS).
-- Every guard-created row has `client_id uuid UNIQUE` (generated on the phone) so an offline entry synced twice is stored once.
+- Every guard-created row's `id` is generated on the phone, so an offline entry synced twice is stored once.
+- Not an attendance system. Labour IN/OUT is a gate log only; labourers may stay inside for days.
 - Timestamps (`in_at`, `out_at`, `at`) are set by database triggers to `now()`. Anything the phone sends for these columns is overwritten.
 - `device_at` = phone clock at the moment of tapping. Stored for information only, shown in admin when `offline = true`.
 - Photo columns hold a storage path, never a URL. URLs are signed on demand (1 hour).
@@ -34,17 +35,17 @@ Conventions
 
 | Table | Columns |
 |---|---|
-| `labour_movements` | `id`, `client_id`, `unit_id`, `labourer_id`, `direction` (`in` / `out`), `at` (server), `device_at`, `offline bool`, `guard_id`, `device_id`, `carrying_photo_path` (OUT only, optional), `voided_at`, `void_reason` |
-| `visitors` | `id`, `client_id`, `unit_id`, `name`, `company`, `purpose` (`client` / `supplier` / `transporter` / `government` / `interview` / `other`), `meeting_staff_id`, `persons int` (default 1), `id_type` (`aadhaar` / `dl` / `company_id` / `none`), `photo_path`, `in_at`, `in_guard_id`, `out_at`, `out_guard_id`, `device_at`, `offline`, `device_id`, `voided_at`, `void_reason` |
-| `vehicles` | `id`, `client_id`, `unit_id`, `plate` (normalised), `vehicle_type` (`truck` / `tempo` / `trailer` / `car` / `bike` / `crane_hydra`), `purpose` (`material_in` / `material_out` / `scrap_out` / `empty` / `visitor`), `driver_name`, `plate_photo_path`, `challan_photo_path` (Material In), `loaded_photo_path` + `gatepass_photo_path` (Material Out / Scrap Out), `in_at`, `in_guard_id`, `out_at`, `out_guard_id`, `out_loaded bool`, `out_loaded_photo_path`, `device_at`, `offline`, `device_id`, `voided_at`, `void_reason` |
-| `handovers` | `id`, `client_id`, `unit_id`, `from_guard_id`, `to_guard_id`, `at`, `labour_inside`, `visitors_inside`, `vehicles_inside` |
-| `incidents` | `id`, `client_id`, `unit_id`, `guard_id`, `type` (`theft` / `injury` / `fight` / `fire` / `other`), `note`, `photo_path`, `at`, `notified_at`, `notify_error` |
-| `mistake_reports` | `id`, `client_id`, `unit_id`, `register` (`labour` / `visitor` / `vehicle`), `entry_id`, `reason`, `guard_id`, `at`, `resolved_at`, `resolved_by`, `resolution_note` |
+| `labour_movements` | `id`, `unit_id`, `labourer_id`, `direction` (`in` / `out`), `at` (server), `device_at`, `offline bool`, `guard_id`, `device_id`, `carrying_photo_path` (OUT only, optional), `voided_at`, `void_reason` |
+| `visitors` | `id`, `unit_id`, `name`, `company`, `purpose` (`client` / `supplier` / `transporter` / `government` / `interview` / `other`), `meeting_staff_id`, `persons int` (default 1), `id_type` (`aadhaar` / `dl` / `company_id` / `none`), `photo_path`, `in_at`, `in_guard_id`, `out_at`, `out_guard_id`, `device_at`, `offline`, `device_id`, `voided_at`, `void_reason` |
+| `vehicles` | `id`, `unit_id`, `plate` (normalised), `vehicle_type` (`truck` / `tempo` / `trailer` / `car` / `bike` / `crane_hydra`), `purpose` (`material_in` / `material_out` / `scrap_out` / `empty` / `visitor`), `driver_name`, `plate_photo_path`, `challan_photo_path` (Material In), `loaded_photo_path` + `gatepass_photo_path` (Material Out / Scrap Out), `in_at`, `in_guard_id`, `out_at`, `out_guard_id`, `out_loaded bool`, `out_loaded_photo_path`, `device_at`, `offline`, `device_id`, `voided_at`, `void_reason` |
+| `handovers` | `id`, `unit_id`, `from_guard_id`, `to_guard_id`, `at`, `labour_inside`, `visitors_inside`, `vehicles_inside` |
+| `incidents` | `id`, `unit_id`, `guard_id`, `type` (`theft` / `injury` / `fight` / `fire` / `other`), `note`, `photo_path`, `at`, `notified_at`, `notify_error` |
+| `mistake_reports` | `id`, `unit_id`, `register` (`labour` / `visitor` / `vehicle`), `entry_id`, `reason`, `guard_id`, `at`, `resolved_at`, `resolved_by`, `resolution_note` |
 | `daily_reports` | `id`, `unit_id`, `report_date`, `sent_at`, `error` — one row per unit per day so a failed send is visible |
 
 Database rules enforced by constraints/triggers (not just the UI)
 - `vehicles`: `purpose = material_in` requires `challan_photo_path`; `material_out` / `scrap_out` require both `loaded_photo_path` and `gatepass_photo_path`.
-- `labour_movements`: direction must alternate for that labourer (an IN after an IN is rejected).
+- `labour_movements`: the app offers the expected next direction (IN or OUT) big, with a small link for the other one. Not enforced in the database because labour stays inside for days and the register may start mid-way.
 - A visitor / vehicle can be marked OUT only once; OUT sets `out_at = now()`.
 - Guards can INSERT, never UPDATE or DELETE. Marking OUT, handover, and mistake reports go through small database functions (RPC) that only change the allowed columns.
 - "Currently inside" = rows with `out_at IS NULL` (visitors, vehicles) or the labourer's last non-voided movement is `in`.
@@ -53,7 +54,7 @@ Database rules enforced by constraints/triggers (not just the UI)
 - One private bucket `photos`. Path: `{unit_id}/{register}/{yyyy-mm}/{uuid}.jpg`.
 - Phone compresses to about 200 KB (max side 1280 px, JPEG) before upload.
 - Access only by signed URL (guard: own unit; admin: all).
-- Nightly job deletes visitor and vehicle photos older than 180 days and blanks the photo columns. Labourer profile photos, incident photos and labour "carrying" photos are kept.
+- Nightly job deletes entry photos older than 90 days (visitor, vehicle, carrying, incident) and blanks the photo columns. The rows and all their data are kept forever. Labourer profile photos are master data and are kept.
 
 ### Auth and unit isolation
 - **Guard**: an Edge Function `guard-login` receives `device_id`, `unit_id` (first login only), `pin`. It checks the PIN against active guards of that unit, locks the device to the unit on first login, and returns a short-lived JWT with claims `role = guard`, `unit_id`, `guard_id`, `device_id`. The JWT refreshes silently in the background; if the phone is offline at expiry the app keeps working from the local queue and refreshes when back online.
@@ -63,7 +64,7 @@ Database rules enforced by constraints/triggers (not just the UI)
 
 ### Scheduled jobs (pg_cron → Edge Functions)
 - 20:00 IST daily: `daily-report` builds one email per unit and sends it (see section 4).
-- 02:00 IST daily: `photo-cleanup` (180-day rule).
+- 02:00 IST daily: `photo-cleanup` (90-day rule).
 - Immediately on insert into `incidents`: `notify-incident` sends the alert.
 
 ---
@@ -127,13 +128,13 @@ Offline behaviour
 
 ---
 
-## 5. Things I need you to confirm
+## 5. Decisions (confirmed)
 
-1. **Offline timestamp rule.** With server-side time, an entry made offline at 10:00 and synced at 14:00 will be stored as 14:00. I propose: keep the server time as the official `at`, also store the phone's time in `device_at`, mark the row `offline`, and show both in admin/report for offline rows. OK?
-2. **Incident alert channel**: email only (default) or also WhatsApp/SMS via Twilio?
-3. **Guard login flow**: PIN only (no guard picker), 4-digit PINs unique within a unit. Admin sets the PINs. OK?
-4. **Labour "carrying" photos and incident photos are kept**; only visitor and vehicle photos are deleted after 180 days. OK?
-5. **Late entry** = a labourer's first IN of the day after the unit's shift start. OK?
+1. **Offline timestamp rule.** Server time is the official `at`; the phone's time is kept in `device_at` and the row is marked `offline` when they differ by more than 2 minutes. Both are shown in admin and reports for offline rows.
+2. **Incident alert**: email only.
+3. **Guard login**: PIN only, 4-digit PINs unique within a unit, set by admin.
+4. **Photos** are kept 3 months (90 days), then deleted. Data is kept forever.
+5. **Not an attendance app.** Late-entry list in the daily report stays simple: labour IN after shift start.
 
 ---
 

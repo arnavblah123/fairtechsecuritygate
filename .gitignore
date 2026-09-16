@@ -1,0 +1,9 @@
+node_modules
+dist
+dev-dist
+.env
+.env.local
+.vercel
+supabase/.temp
+*.log
+*.tsbuildinfo
