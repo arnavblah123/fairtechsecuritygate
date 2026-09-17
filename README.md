@@ -3,45 +3,38 @@
 Gate register PWA for Fairtech Engineers: Dehu (Pune) and Savli (Baroda).
 
 Stack (all on free plans, no card needed): React + Vite + Tailwind on **Vercel**, a single Vercel serverless
-function (Hono) as the API, **Neon** Postgres for data, **Backblaze B2** for photos.
+function (Hono) as the API, **Neon** Postgres for data, **Vercel Blob** (private store) for photos.
 
 Design and data model: [docs/DESIGN.md](docs/DESIGN.md).
 
-## Setup (one time, about 20 minutes)
+## Setup (one time, about 15 minutes)
 
 ### 1. Neon (database)
 1. Sign up at neon.com (free plan). Create a project, region **AWS ap-southeast-1 (Singapore)** or the closest available.
 2. Open **SQL Editor**, paste the whole of `db/schema.sql`, run it.
 3. Dashboard → **Connect** → copy the connection string (it looks like `postgresql://…neon.tech/neondb?sslmode=require`). This is `DATABASE_URL`.
 
-### 2. Backblaze B2 (photos)
-1. Sign up at backblaze.com → B2 Cloud Storage (first 10 GB free).
-2. **Buckets → Create a bucket**: name e.g. `fairtech-gate-photos`, **Private**. Note the endpoint shown on the bucket
-   (e.g. `s3.us-west-004.backblazeb2.com`); the region is the middle part (`us-west-004`).
-3. **Application Keys → Add a new application key**: allow access to that bucket only, Read and Write. Copy the `keyID` and `applicationKey` (shown once).
-
-### 3. Vercel (app + API)
-1. Import this repo. Framework preset: **Vite**. Leave build settings as detected.
-2. Settings → Environment Variables (see `.env.example`):
+### 2. Vercel (app + API + photos)
+1. vercel.com/new → **Import Git Repository** → pick this repo. Framework preset: **Vite**. Leave build settings as detected.
+2. Open **Environment Variables** on the import screen and add:
 
    | Name | Value |
    |---|---|
    | `DATABASE_URL` | Neon connection string |
    | `JWT_SECRET` | any long random text (30+ characters) |
-   | `S3_ENDPOINT` | `https://s3.<region>.backblazeb2.com` |
-   | `S3_REGION` | e.g. `us-west-004` |
-   | `S3_BUCKET` | your bucket name |
-   | `S3_ACCESS_KEY_ID` | B2 keyID |
-   | `S3_SECRET_ACCESS_KEY` | B2 applicationKey |
-3. Deploy.
+3. Click **Deploy**.
+4. Photos: in the project, open **Storage → Create Database → Blob**. Name it `gate-photos`, choose **Private** access, and connect it to the project (all environments). Vercel adds `BLOB_READ_WRITE_TOKEN` to the project by itself.
+5. **Deployments → ⋯ → Redeploy** once, so the API picks up the Blob token.
 
-### 4. First data (admin)
+Free limits: Neon 0.5 GB data (years of entries), Vercel Blob 1 GB photos (about 8,000 photos at the app's compression). Photos are deleted after 90 days; if the store fills earlier, the cleanup job removes the oldest first.
+
+### 3. First data (admin)
 1. Open `https://<your-app>.vercel.app/admin`. The first visit shows **Create admin account**: enter your email and a password. This form disappears once an admin exists.
 2. **Contractors**: add the contractors for each unit.
 3. **Labourers**: add name, contractor and photo for each unit.
 4. **Guards & PINs**: add each guard with a 4-digit PIN (unique within the unit).
 
-### 5. Guard phone
+### 4. Guard phone
 1. Open the app URL in Chrome → menu → **Add to Home screen**.
 2. Open it from the home screen. First time: pick the factory, then the guard enters the PIN.
    The phone is now locked to that unit (visible under Admin → Devices).

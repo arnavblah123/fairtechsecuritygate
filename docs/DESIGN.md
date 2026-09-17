@@ -1,7 +1,7 @@
 # Fairtech Gate Register — Design (Step 1)
 
 Standalone app for the gate at two Fairtech Engineers units: **Dehu (Pune)** and **Savli (Baroda)**.
-Stack (all free plans, no card): React (Vite, TypeScript, Tailwind) PWA on Vercel, one Vercel serverless function (Hono) as the API, Neon Postgres for data, Backblaze B2 (S3 API) for photos, Vercel Cron for the daily jobs.
+Stack (all free plans, no card): React (Vite, TypeScript, Tailwind) PWA on Vercel, one Vercel serverless function (Hono) as the API, Neon Postgres for data, Vercel Blob (private store) for photos, Vercel Cron for the daily jobs.
 
 Timezone everywhere: Asia/Kolkata.
 
@@ -51,10 +51,10 @@ Database rules enforced by constraints/triggers (not just the UI)
 - "Currently inside" = rows with `out_at IS NULL` (visitors, vehicles) or the labourer's last non-voided movement is `in`.
 
 ### Storage
-- One private Backblaze B2 bucket (S3 API). Path: `{unit_id}/{register}/{yyyy-mm}/{uuid}.jpg`.
-- Phone compresses to about 200 KB (max side 1280 px, JPEG) before upload.
-- Photos are uploaded and served through the API, which checks the unit prefix against the token. No bucket CORS or public URLs.
-- Nightly job deletes entry photos older than 90 days (visitor, vehicle, carrying, incident) and blanks the photo columns. The rows and all their data are kept forever. Labourer profile photos are master data and are kept.
+- One private Vercel Blob store (1 GB free). Path: `{unit_id}/{register}/{yyyy-mm}/{uuid}.jpg`.
+- Phone compresses to about 120 KB (max side 1024 px, JPEG) before upload, so 1 GB holds roughly 8,000 photos.
+- Photos are uploaded and served through the API, which checks the unit prefix against the token. No public URLs.
+- Nightly job deletes entry photos older than 90 days (visitor, vehicle, carrying, incident) and blanks the photo columns; if the store is above 900 MB it also removes the oldest entry photos first. The rows and all their data are kept forever. Labourer profile photos are master data and are kept.
 
 ### Auth and unit isolation
 - **Guard**: `POST /api/guard/login` with `device_id`, `unit_id` (first login only) and `pin`. The API checks the PIN against the active guards of that unit (bcrypt), locks the phone to the unit on first login, and returns a 30-day signed token (JWT) with `role = guard`, `unit_id`, `guard_id`, `device_id`. The token is refreshed silently when it is within 7 days of expiry; offline the app keeps working from the local queue.

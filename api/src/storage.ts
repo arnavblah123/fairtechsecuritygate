@@ -1,5 +1,4 @@
-// Photo storage. Production: any S3-compatible bucket (Backblaze B2). Local dev: a folder.
-import { AwsClient } from 'aws4fetch'
+// Photo storage. Production: Vercel Blob (private store). Local dev: a folder.
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
@@ -9,30 +8,22 @@ export interface Storage {
   delete(path: string): Promise<void>
 }
 
-function s3(): Storage {
-  const endpoint = process.env.S3_ENDPOINT!.replace(/\/$/, '')
-  const bucket = process.env.S3_BUCKET!
-  const client = new AwsClient({
-    accessKeyId: process.env.S3_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.S3_SECRET_ACCESS_KEY!,
-    service: 's3',
-    region: process.env.S3_REGION || 'us-east-1',
-  })
-  const url = (path: string) => `${endpoint}/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`
+function vercelBlob(): Storage {
+  const sdk = import('@vercel/blob')
   return {
     async put(path, bytes, contentType) {
-      const res = await client.fetch(url(path), { method: 'PUT', body: bytes, headers: { 'Content-Type': contentType, 'Content-Length': String(bytes.byteLength) } })
-      if (!res.ok) throw new Error(`storage put ${res.status}: ${(await res.text()).slice(0, 200)}`)
+      const { put } = await sdk
+      await put(path, new Blob([bytes], { type: contentType }), { access: 'private', addRandomSuffix: false, allowOverwrite: true, contentType })
     },
     async get(path) {
-      const res = await client.fetch(url(path), { method: 'GET' })
-      if (res.status === 404) return null
-      if (!res.ok) throw new Error(`storage get ${res.status}`)
-      return { bytes: new Uint8Array(await res.arrayBuffer()), contentType: res.headers.get('content-type') || 'image/jpeg' }
+      const { get } = await sdk
+      const r = await get(path, { access: 'private' })
+      if (!r || !r.stream) return null
+      return { bytes: new Uint8Array(await new Response(r.stream).arrayBuffer()), contentType: r.blob.contentType || 'image/jpeg' }
     },
     async delete(path) {
-      const res = await client.fetch(url(path), { method: 'DELETE' })
-      if (!res.ok && res.status !== 404) throw new Error(`storage delete ${res.status}`)
+      const { del } = await sdk
+      await del(path)
     },
   }
 }
@@ -56,7 +47,9 @@ function local(dir: string): Storage {
 let instance: Storage | null = null
 export function storage(): Storage {
   if (instance) return instance
-  instance = process.env.STORAGE_DIR ? local(process.env.STORAGE_DIR) : s3()
+  if (process.env.STORAGE_DIR) instance = local(process.env.STORAGE_DIR)
+  else if (process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_OIDC_TOKEN) instance = vercelBlob()
+  else throw new Error('No photo storage configured: connect a Vercel Blob store to this project (adds BLOB_READ_WRITE_TOKEN).')
   return instance
 }
 

@@ -2,15 +2,15 @@ import imageCompression from 'browser-image-compression'
 import { db } from './db'
 import { api } from './http'
 
-/** Compress a captured image to ~200 KB JPEG, max 1280 px on the long side. */
+/** Compress a captured image to ~120 KB JPEG, max 1024 px on the long side. */
 export async function compressPhoto(file: File | Blob): Promise<Blob> {
   const f = file instanceof File ? file : new File([file], 'photo.jpg', { type: file.type || 'image/jpeg' })
   return imageCompression(f, {
-    maxSizeMB: 0.2,
-    maxWidthOrHeight: 1280,
+    maxSizeMB: 0.12,
+    maxWidthOrHeight: 1024,
     useWebWorker: true,
     fileType: 'image/jpeg',
-    initialQuality: 0.8,
+    initialQuality: 0.75,
   })
 }
 
