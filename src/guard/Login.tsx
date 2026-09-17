@@ -4,27 +4,19 @@ import LangToggle from '../components/LangToggle'
 import PinPad from '../components/PinPad'
 import { useT } from '../lib/i18n'
 import { getDeviceId, getLockedUnit, setGuardSession, setLockedUnit } from '../lib/session'
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from '../lib/supabase'
+import { api, ApiError, guardToken } from '../lib/http'
 import { clearCaches, kvGet } from '../lib/db'
 import { refreshCaches, usePendingCount } from '../lib/sync'
 import type { GuardSession, Lang, Unit } from '../lib/types'
 
 interface LoginResponse {
-  session: { access_token: string; refresh_token: string }
+  token: string
   guard: { id: string; name: string; language: Lang | null }
   unit: Unit
-  error?: string
 }
 
-export async function guardLogin(pin: string, unitId: string | null): Promise<LoginResponse> {
-  const res = await fetch(`${SUPABASE_URL}/functions/v1/guard-login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}` },
-    body: JSON.stringify({ device_id: getDeviceId(), unit_id: unitId, pin, device_label: navigator.userAgent.slice(0, 80) }),
-  })
-  const body = (await res.json().catch(() => ({}))) as LoginResponse
-  if (!res.ok) throw new Error(body.error ?? 'server')
-  return body
+export function guardLogin(pin: string, unitId: string | null): Promise<LoginResponse> {
+  return api.post<LoginResponse>('/api/guard/login', { device_id: getDeviceId(), unit_id: unitId, pin, device_label: navigator.userAgent.slice(0, 80) }, null)
 }
 
 export default function Login() {
@@ -42,7 +34,7 @@ export default function Login() {
     setBusy(true)
     try {
       const r = await guardLogin(pin, unit)
-      await supabase.auth.setSession(r.session)
+      guardToken.set(r.token)
       // The server decides the unit (device lock). If it differs from what the phone thinks, follow the server.
       const prevUnit = await kvGet<string>('cache.unit')
       if (prevUnit && prevUnit !== r.unit.id) await clearCaches()
@@ -56,7 +48,7 @@ export default function Login() {
       void refreshCaches(r.unit.id)
       nav('/', { replace: true })
     } catch (e) {
-      const code = (e as Error).message
+      const code = e instanceof ApiError ? e.code : 'server'
       const map: Record<string, string> = { bad_pin: 'wrong_pin', locked: 'locked', device_disabled: 'device_disabled', unit_required: 'error_try_again' }
       setError(t(map[code] ?? (navigator.onLine ? 'error_try_again' : 'need_internet')))
       setResetKey((k) => k + 1)

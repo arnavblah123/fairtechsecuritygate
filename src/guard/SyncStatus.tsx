@@ -5,6 +5,7 @@ import TopBar from '../components/TopBar'
 import { db } from '../lib/db'
 import { useT } from '../lib/i18n'
 import { setGuardSession } from '../lib/session'
+import { guardToken } from '../lib/http'
 import { processOutbox, retryErrors, useOnline, useSyncState } from '../lib/sync'
 import { fmtDateTime } from '../lib/time'
 
@@ -24,7 +25,7 @@ export default function SyncStatus() {
         <p className="text-xl">{online ? '🟢' : '⚪'} {online ? '' : t('offline')} {lastAt ? `· ${t('last_sync')}: ${fmtDateTime(lastAt)}` : ''}</p>
         {items.length === 0 && <p className="rounded-2xl bg-green-100 p-4 text-center text-2xl font-bold text-green-800">{t('all_synced')}</p>}
         {state === 'auth' && (
-          <BigButton variant="danger" icon="🔑" onClick={() => { setGuardSession(null); nav('/login', { replace: true }) }}>{t('login_again')}</BigButton>
+          <BigButton variant="danger" icon="🔑" onClick={() => { setGuardSession(null); guardToken.set(null); nav('/login', { replace: true }) }}>{t('login_again')}</BigButton>
         )}
         {items.length > 0 && (
           <>

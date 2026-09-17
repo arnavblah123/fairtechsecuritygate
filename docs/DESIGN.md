@@ -1,16 +1,16 @@
 # Fairtech Gate Register — Design (Step 1)
 
 Standalone app for the gate at two Fairtech Engineers units: **Dehu (Pune)** and **Savli (Baroda)**.
-Stack: React (Vite, TypeScript, Tailwind) PWA on Vercel + a fresh, separate Supabase project.
+Stack (all free plans, no card): React (Vite, TypeScript, Tailwind) PWA on Vercel, one Vercel serverless function (Hono) as the API, Neon Postgres for data, Backblaze B2 (S3 API) for photos, Vercel Cron for the daily jobs.
 
 Timezone everywhere: Asia/Kolkata.
 
 ---
 
-## 1. Data model (Supabase / Postgres)
+## 1. Data model (Neon Postgres)
 
 Conventions
-- Every guard-facing table has `unit_id` and is protected by Row Level Security (RLS).
+- Every guard-facing table has `unit_id`. The API filters every guard request by the unit inside the login token.
 - Every guard-created row's `id` is generated on the phone, so an offline entry synced twice is stored once.
 - Not an attendance system. Labour IN/OUT is a gate log only; labourers may stay inside for days.
 - Timestamps (`in_at`, `out_at`, `at`) are set by database triggers to `now()`. Anything the phone sends for these columns is overwritten.
@@ -29,7 +29,7 @@ Conventions
 | `labourers` | `id`, `unit_id`, `name`, `contractor_id`, `photo_path`, `status` (`approved` / `pending` / `rejected` / `inactive`), `created_by_guard_id`, `created_at` |
 | `emergency_contacts` | `id`, `unit_id`, `label`, `phone`, `sort_order` |
 | `blacklist` | `id`, `unit_id` (null = both units), `kind` (`person` / `plate`), `labourer_id`, `name`, `plate` (normalised: uppercase, no spaces), `reason`, `active`, `created_at` |
-| `admins` | `user_id uuid PK` (Supabase Auth user), `email` |
+| `admin_users` | `id`, `email`, `password_hash` (bcrypt). The first visit to /admin creates the first admin. |
 
 ### Register tables (guard-created)
 
@@ -47,25 +47,25 @@ Database rules enforced by constraints/triggers (not just the UI)
 - `vehicles`: `purpose = material_in` requires `challan_photo_path`; `material_out` / `scrap_out` require both `loaded_photo_path` and `gatepass_photo_path`.
 - `labour_movements`: the app offers the expected next direction (IN or OUT) big, with a small link for the other one. Not enforced in the database because labour stays inside for days and the register may start mid-way.
 - A visitor / vehicle can be marked OUT only once; OUT sets `out_at = now()`.
-- Guards can INSERT, never UPDATE or DELETE. Marking OUT, handover, and mistake reports go through small database functions (RPC) that only change the allowed columns.
+- Guards can INSERT, never UPDATE or DELETE. The API whitelists the columns a guard may send and forces `unit_id`, `guard_id` and `device_id` from the token. Marking OUT, handover, and the carrying photo go through specific API calls that only change the allowed columns.
 - "Currently inside" = rows with `out_at IS NULL` (visitors, vehicles) or the labourer's last non-voided movement is `in`.
 
 ### Storage
-- One private bucket `photos`. Path: `{unit_id}/{register}/{yyyy-mm}/{uuid}.jpg`.
+- One private Backblaze B2 bucket (S3 API). Path: `{unit_id}/{register}/{yyyy-mm}/{uuid}.jpg`.
 - Phone compresses to about 200 KB (max side 1280 px, JPEG) before upload.
-- Access only by signed URL (guard: own unit; admin: all).
+- Photos are uploaded and served through the API, which checks the unit prefix against the token. No bucket CORS or public URLs.
 - Nightly job deletes entry photos older than 90 days (visitor, vehicle, carrying, incident) and blanks the photo columns. The rows and all their data are kept forever. Labourer profile photos are master data and are kept.
 
 ### Auth and unit isolation
-- **Guard**: an Edge Function `guard-login` receives `device_id`, `unit_id` (first login only), `pin`. It checks the PIN against active guards of that unit, locks the device to the unit on first login, and returns a short-lived JWT with claims `role = guard`, `unit_id`, `guard_id`, `device_id`. The JWT refreshes silently in the background; if the phone is offline at expiry the app keeps working from the local queue and refreshes when back online.
-- All RLS policies compare the row's `unit_id` to the JWT's `unit_id`. Changing the URL or the request cannot cross units because the token, not the client, decides the unit.
-- Device to unit lock lives in the `devices` table. Admin can unlock / reassign a device.
-- **Admin**: Supabase Auth email + password. RLS allows everything for a user present in `admins`.
+- **Guard**: `POST /api/guard/login` with `device_id`, `unit_id` (first login only) and `pin`. The API checks the PIN against the active guards of that unit (bcrypt), locks the phone to the unit on first login, and returns a 30-day signed token (JWT) with `role = guard`, `unit_id`, `guard_id`, `device_id`. The token is refreshed silently when it is within 7 days of expiry; offline the app keeps working from the local queue.
+- Every guard route reads the unit from the token, never from the request. Changing the URL or the request body cannot cross units.
+- Device to unit lock lives in the `devices` table. Admin can unlock / reassign a device. Five wrong PINs lock a phone for 10 minutes.
+- **Admin**: email + password (bcrypt) → 7-day token with `role = admin`.
 
-### Scheduled jobs (pg_cron → Edge Functions)
+### Scheduled jobs (Vercel Cron, 2 daily jobs on the free plan)
 - 20:00 IST daily: `daily-report` builds one email per unit and sends it (see section 4).
 - 02:00 IST daily: `photo-cleanup` (90-day rule).
-- Immediately on insert into `incidents`: `notify-incident` sends the alert.
+- Incident alert is sent by the API at the moment the incident row arrives.
 
 ---
 
@@ -142,6 +142,6 @@ Offline behaviour
 
 | Step | Delivers |
 |---|---|
-| 2 | Supabase schema + RLS + storage + `guard-login`; PWA shell; unit select, login, home, Labour (grid, IN/OUT, new person, carrying photo); offline queue + sync; 4 locale files; admin: login, labourers, contractors, guards, devices |
+| 2 | Neon schema, API (login, entries, photos, admin); PWA shell; unit select, login, home, Labour (grid, IN/OUT, new person, carrying photo); offline queue + sync; 4 locale files; admin: login, labourers, contractors, guards, devices |
 | 3 | Visitor, Vehicle, Emergency; admin: staff, emergency contacts |
 | 4 | Handover, incident + alert, blacklist + warning, mistake reports + void, daily report email, Excel exports, photo cleanup job |

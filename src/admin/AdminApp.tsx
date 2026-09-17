@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
+import { adminToken } from '../lib/http'
+import { admin } from './lib'
 import AdminLogin from './AdminLogin'
 import Labourers from './Labourers'
 import Contractors from './Contractors'
@@ -9,31 +10,26 @@ import Devices from './Devices'
 import Live from './Live'
 
 export default function AdminApp() {
-  const [state, setState] = useState<'loading' | 'out' | 'notadmin' | 'in'>('loading')
+  const [state, setState] = useState<'loading' | 'out' | 'in'>('loading')
+  const [email, setEmail] = useState('')
 
-  useEffect(() => {
-    const check = async () => {
-      const { data } = await supabase.auth.getSession()
-      if (!data.session || data.session.user.app_metadata?.role === 'guard') { setState('out'); return }
-      const { data: row } = await supabase.from('admins').select('user_id').eq('user_id', data.session.user.id).maybeSingle()
-      setState(row ? 'in' : 'notadmin')
+  const check = async () => {
+    if (!adminToken.get()) { setState('out'); return }
+    try {
+      const me = await admin.get<{ email: string }>('/api/admin/me')
+      setEmail(me.email)
+      setState('in')
+    } catch {
+      adminToken.set(null)
+      setState('out')
     }
-    void check()
-    const { data: sub } = supabase.auth.onAuthStateChange(() => { void check() })
-    return () => sub.subscription.unsubscribe()
-  }, [])
+  }
+  useEffect(() => { void check() }, [])
 
   if (state === 'loading') return <p className="p-4">Loading…</p>
-  if (state === 'out') return <AdminLogin />
-  if (state === 'notadmin') {
-    return (
-      <div className="p-4">
-        <p className="mb-2 text-red-700">This login is not an admin. Add your user id to the <code>admins</code> table (see README).</p>
-        <button type="button" className="a-btn" onClick={() => void supabase.auth.signOut()}>Sign out</button>
-      </div>
-    )
-  }
+  if (state === 'out') return <AdminLogin onDone={() => void check()} />
 
+  const signOut = () => { adminToken.set(null); setState('out') }
   const link = ({ isActive }: { isActive: boolean }) => `rounded px-3 py-1 ${isActive ? 'bg-blue-700 text-white' : 'hover:bg-gray-200'}`
   return (
     <div className="mx-auto max-w-6xl p-3 text-base">
@@ -45,7 +41,8 @@ export default function AdminApp() {
         <NavLink to="/admin/guards" className={link}>Guards & PINs</NavLink>
         <NavLink to="/admin/devices" className={link}>Devices</NavLink>
         <span className="flex-1" />
-        <button type="button" className="a-btn-plain" onClick={() => void supabase.auth.signOut()}>Sign out</button>
+        <span className="text-sm text-gray-600">{email}</span>
+        <button type="button" className="a-btn-plain" onClick={signOut}>Sign out</button>
       </nav>
       <Routes>
         <Route index element={<Live />} />

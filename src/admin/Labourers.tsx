@@ -1,11 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { compressPhoto, newPhotoPath } from '../lib/photo'
-import { supabase } from '../lib/supabase'
 import { fmtDateTime } from '../lib/time'
-import { Thumb, UnitTabs, errMsg, useUnit } from './lib'
+import { Thumb, UnitTabs, admin, errMsg, useUnit } from './lib'
 
 interface Lab { id: string; unit_id: string; name: string; contractor_id: string | null; photo_path: string | null; status: string; created_at: string; created_by_guard_id: string | null }
-interface Con { id: string; name: string }
+interface Con { id: string; name: string; active: boolean }
 type Tab = 'approved' | 'pending' | 'inactive'
 
 export default function Labourers() {
@@ -16,64 +15,45 @@ export default function Labourers() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [q, setQ] = useState('')
-  // add form
   const [name, setName] = useState('')
   const [con, setCon] = useState('')
   const [file, setFile] = useState<File | null>(null)
-  // edit
   const [edit, setEdit] = useState<Lab | null>(null)
   const [mergeTarget, setMergeTarget] = useState('')
 
   const load = async () => {
-    const [l, c] = await Promise.all([
-      supabase.from('labourers').select('id, unit_id, name, contractor_id, photo_path, status, created_at, created_by_guard_id').eq('unit_id', unit).order('name'),
-      supabase.from('contractors').select('id, name').eq('unit_id', unit).eq('active', true).order('name'),
-    ])
-    if (l.error) setError(l.error.message); else setRows(l.data as Lab[])
-    if (c.data) setCons(c.data as Con[])
+    try {
+      const [l, c] = await Promise.all([admin.get<Lab[]>(`/api/admin/labourers?unit=${unit}`), admin.get<Con[]>(`/api/admin/contractors?unit=${unit}`)])
+      setRows(l); setCons(c.filter((x) => x.active))
+    } catch (e) { setError(errMsg(e)) }
   }
   useEffect(() => { void load() }, [unit]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true); setError(null)
+    try { await fn(); await load() } catch (e) { setError(errMsg(e)) } finally { setBusy(false) }
+  }
 
   const uploadPhoto = async (f: File): Promise<string> => {
     const blob = await compressPhoto(f)
     const path = newPhotoPath(unit, 'labourer')
-    const { error } = await supabase.storage.from('photos').upload(path, blob, { contentType: 'image/jpeg' })
-    if (error) throw error
+    await admin.putBlob(`/api/photos/${path}`, blob)
     return path
   }
 
-  const add = async (e: FormEvent) => {
+  const add = (e: FormEvent) => {
     e.preventDefault()
-    setBusy(true); setError(null)
-    try {
+    void run(async () => {
       const photo_path = file ? await uploadPhoto(file) : null
-      const { error } = await supabase.from('labourers').insert({ unit_id: unit, name: name.trim(), contractor_id: con || null, photo_path, status: 'approved' })
-      if (error) throw error
+      await admin.post('/api/admin/labourers', { unit_id: unit, name: name.trim(), contractor_id: con || null, photo_path })
       setName(''); setCon(''); setFile(null)
-      await load()
-    } catch (err) { setError(errMsg(err)) } finally { setBusy(false) }
+    })
   }
-
-  const update = async (id: string, patch: Partial<Lab>) => {
-    setBusy(true); setError(null)
-    const { error } = await supabase.from('labourers').update(patch).eq('id', id)
-    if (error) setError(error.message)
-    await load(); setBusy(false)
-  }
-
-  const replacePhoto = async (id: string, f: File) => {
-    setBusy(true); setError(null)
-    try { await update(id, { photo_path: await uploadPhoto(f) }) } catch (err) { setError(errMsg(err)) } finally { setBusy(false) }
-  }
-
-  /** Merge a guard-created pending person into an existing labourer: move their movements, then reject the duplicate. */
-  const merge = async (dup: Lab, targetId: string) => {
-    if (!targetId || !confirm('Move all entries of this pending person to the selected labourer and remove the duplicate?')) return
-    setBusy(true); setError(null)
-    const m = await supabase.from('labour_movements').update({ labourer_id: targetId }).eq('labourer_id', dup.id)
-    if (m.error) { setError(m.error.message); setBusy(false); return }
-    await update(dup.id, { status: 'rejected' })
-    setEdit(null)
+  const patch = (id: string, p: Partial<Lab>) => run(() => admin.patch(`/api/admin/labourers/${id}`, p))
+  const replacePhoto = (id: string, f: File) => run(async () => admin.patch(`/api/admin/labourers/${id}`, { photo_path: await uploadPhoto(f) }))
+  const merge = (dup: Lab, target: string) => {
+    if (!target || !confirm('Move all entries of this pending person to the selected labourer and remove the duplicate?')) return
+    void run(() => admin.post(`/api/admin/labourers/${dup.id}/merge`, { target })).then(() => setEdit(null))
   }
 
   const needle = q.trim().toLowerCase()
@@ -87,7 +67,7 @@ export default function Labourers() {
       <UnitTabs unit={unit} onChange={setUnit} />
       {error && <p className="mb-2 text-red-700">{error}</p>}
 
-      <form onSubmit={(e) => void add(e)} className="mb-4 flex flex-wrap items-end gap-2 rounded border p-3">
+      <form onSubmit={add} className="mb-4 flex flex-wrap items-end gap-2 rounded border p-3">
         <label className="flex flex-col text-sm">Name<input className="a-input" value={name} onChange={(e) => setName(e.target.value)} required /></label>
         <label className="flex flex-col text-sm">Contractor
           <select className="a-input" value={con} onChange={(e) => setCon(e.target.value)}>
@@ -124,7 +104,7 @@ export default function Labourers() {
               <td className="whitespace-nowrap">
                 {edit?.id === r.id ? (
                   <span className="flex flex-wrap gap-1">
-                    <button type="button" className="a-btn" disabled={busy} onClick={() => { void update(r.id, { name: edit.name.trim(), contractor_id: edit.contractor_id }); setEdit(null) }}>Save</button>
+                    <button type="button" className="a-btn" disabled={busy} onClick={() => { void patch(r.id, { name: edit.name.trim(), contractor_id: edit.contractor_id }); setEdit(null) }}>Save</button>
                     <label className="a-btn-plain cursor-pointer">Photo<input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && void replacePhoto(r.id, e.target.files[0])} /></label>
                     {r.status === 'pending' && (
                       <>
@@ -132,7 +112,7 @@ export default function Labourers() {
                           <option value="">Merge into…</option>
                           {rows.filter((x) => x.status === 'approved').map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                         </select>
-                        <button type="button" className="a-btn-plain" disabled={busy || !mergeTarget} onClick={() => void merge(r, mergeTarget)}>Merge</button>
+                        <button type="button" className="a-btn-plain" disabled={busy || !mergeTarget} onClick={() => merge(r, mergeTarget)}>Merge</button>
                       </>
                     )}
                     <button type="button" className="a-btn-plain" onClick={() => setEdit(null)}>Cancel</button>
@@ -140,10 +120,10 @@ export default function Labourers() {
                 ) : (
                   <span className="flex flex-wrap gap-1">
                     <button type="button" className="a-btn-plain" onClick={() => { setEdit(r); setMergeTarget('') }}>Edit</button>
-                    {r.status === 'pending' && <button type="button" className="a-btn" disabled={busy} onClick={() => void update(r.id, { status: 'approved' })}>Approve</button>}
-                    {r.status === 'pending' && <button type="button" className="a-btn-plain" disabled={busy} onClick={() => void update(r.id, { status: 'rejected' })}>Reject</button>}
-                    {r.status === 'approved' && <button type="button" className="a-btn-plain" disabled={busy} onClick={() => void update(r.id, { status: 'inactive' })}>Deactivate</button>}
-                    {(r.status === 'inactive' || r.status === 'rejected') && <button type="button" className="a-btn-plain" disabled={busy} onClick={() => void update(r.id, { status: 'approved' })}>Reactivate</button>}
+                    {r.status === 'pending' && <button type="button" className="a-btn" disabled={busy} onClick={() => void patch(r.id, { status: 'approved' })}>Approve</button>}
+                    {r.status === 'pending' && <button type="button" className="a-btn-plain" disabled={busy} onClick={() => void patch(r.id, { status: 'rejected' })}>Reject</button>}
+                    {r.status === 'approved' && <button type="button" className="a-btn-plain" disabled={busy} onClick={() => void patch(r.id, { status: 'inactive' })}>Deactivate</button>}
+                    {(r.status === 'inactive' || r.status === 'rejected') && <button type="button" className="a-btn-plain" disabled={busy} onClick={() => void patch(r.id, { status: 'approved' })}>Reactivate</button>}
                   </span>
                 )}
               </td>

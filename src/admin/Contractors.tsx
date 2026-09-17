@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { supabase } from '../lib/supabase'
-import { UnitTabs, useUnit } from './lib'
+import { UnitTabs, admin, errMsg, useUnit } from './lib'
 
 interface Con { id: string; name: string; active: boolean }
 
@@ -9,25 +8,19 @@ export default function Contractors() {
   const [rows, setRows] = useState<Con[]>([])
   const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const load = async () => {
-    const { data, error } = await supabase.from('contractors').select('id, name, active').eq('unit_id', unit).order('name')
-    if (error) setError(error.message); else setRows(data as Con[])
-  }
+  const load = () => admin.get<Con[]>(`/api/admin/contractors?unit=${unit}`).then(setRows).catch((e) => setError(errMsg(e)))
   useEffect(() => { void load() }, [unit]) // eslint-disable-line react-hooks/exhaustive-deps
-  const add = async (e: FormEvent) => {
+  const run = (fn: () => Promise<unknown>) => fn().then(load).catch((e) => setError(errMsg(e)))
+  const add = (e: FormEvent) => {
     e.preventDefault()
-    const { error } = await supabase.from('contractors').insert({ unit_id: unit, name: name.trim() })
-    if (error) setError(error.message); else { setName(''); await load() }
+    void run(() => admin.post('/api/admin/contractors', { unit_id: unit, name: name.trim() })).then(() => setName(''))
   }
-  const patch = async (id: string, p: Partial<Con>) => {
-    const { error } = await supabase.from('contractors').update(p).eq('id', id)
-    if (error) setError(error.message); else await load()
-  }
+  const patch = (id: string, p: Partial<Con>) => run(() => admin.patch(`/api/admin/contractors/${id}`, p))
   return (
     <div>
       <UnitTabs unit={unit} onChange={setUnit} />
       {error && <p className="text-red-700">{error}</p>}
-      <form onSubmit={(e) => void add(e)} className="mb-3 flex gap-2">
+      <form onSubmit={add} className="mb-3 flex gap-2">
         <input className="a-input" placeholder="Contractor / company name" value={name} onChange={(e) => setName(e.target.value)} required />
         <button className="a-btn">Add</button>
       </form>

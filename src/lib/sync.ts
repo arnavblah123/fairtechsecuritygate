@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, kvGet, kvSet } from './db'
-import { supabase, PHOTOS_BUCKET } from './supabase'
-import { istDayStart } from './time'
+import { api, ApiError, guardToken, isNetworkError } from './http'
 import { prunePhotoCache } from './photo'
 import type { Contractor, Labourer, LabourMovement, OutboxItem } from './types'
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'auth' | 'error'
 
 let running = false
-let listeners = new Set<(s: SyncState) => void>()
+const listeners = new Set<(s: SyncState) => void>()
 let state: SyncState = 'idle'
 function setState(s: SyncState) {
   state = s
@@ -22,58 +21,40 @@ export async function enqueue(items: Omit<OutboxItem, 'seq' | 'status' | 'attemp
   void processOutbox()
 }
 
-function isNetworkError(e: unknown): boolean {
-  const msg = String((e as { message?: string })?.message ?? e ?? '')
-  return !navigator.onLine || /fetch|network|Failed to fetch|Load failed|timeout/i.test(msg)
+type Result = { result: 'ok' | 'permanent' | 'transient' | 'auth'; error?: string }
+
+function classify(e: unknown): Result {
+  if (e instanceof ApiError) {
+    if (e.status === 401) return { result: 'auth', error: e.message }
+    if (e.status >= 500) return { result: 'transient', error: e.message }
+    return { result: 'permanent', error: e.message }
+  }
+  if (isNetworkError(e)) return { result: 'transient', error: String((e as Error).message ?? e) }
+  return { result: 'permanent', error: String((e as Error).message ?? e) }
 }
 
-/** Returns 'ok' | 'permanent' | 'transient' | 'auth' */
-async function runItem(item: OutboxItem): Promise<{ result: 'ok' | 'permanent' | 'transient' | 'auth'; error?: string }> {
+async function runItem(item: OutboxItem): Promise<Result> {
   try {
+    const token = guardToken.get()
     if (item.kind === 'upload') {
       const photo = await db.photos.get(item.path!)
       if (!photo) return { result: 'permanent', error: 'photo missing on phone' }
-      const { error } = await supabase.storage.from(PHOTOS_BUCKET).upload(item.path!, photo.blob, { contentType: 'image/jpeg', upsert: false })
-      if (error) {
-        const msg = error.message || ''
-        const status = (error as { statusCode?: string | number }).statusCode
-        if (/already exists|Duplicate/i.test(msg) || String(status) === '409') return { result: 'ok' }
-        if (String(status) === '401' || /jwt|token/i.test(msg)) return { result: 'auth', error: msg }
-        if (isNetworkError(error)) return { result: 'transient', error: msg }
-        return { result: 'permanent', error: msg }
-      }
-      return { result: 'ok' }
+      await api.putBlob(`/api/photos/${item.path}`, photo.blob, token)
+    } else if (item.kind === 'insert') {
+      await api.post('/api/guard/entries', { table: item.table, row: item.payload }, token)
+    } else if (item.kind === 'rpc') {
+      await api.post(`/api/guard/rpc/${item.fn}`, item.payload, token)
+    } else {
+      return { result: 'permanent', error: 'unknown item' }
     }
-    if (item.kind === 'insert') {
-      const { error } = await supabase.from(item.table!).insert(item.payload!)
-      if (error) {
-        if (error.code === '23505') return { result: 'ok' } // already there
-        if (error.code === 'PGRST301' || /jwt|token/i.test(error.message)) return { result: 'auth', error: error.message }
-        if (isNetworkError(error)) return { result: 'transient', error: error.message }
-        return { result: 'permanent', error: `${error.code ?? ''} ${error.message}` }
-      }
-      return { result: 'ok' }
-    }
-    if (item.kind === 'rpc') {
-      const { error } = await supabase.rpc(item.fn!, item.payload!)
-      if (error) {
-        if (error.code === 'PGRST301' || /jwt|token/i.test(error.message)) return { result: 'auth', error: error.message }
-        if (isNetworkError(error)) return { result: 'transient', error: error.message }
-        return { result: 'permanent', error: `${error.code ?? ''} ${error.message}` }
-      }
-      return { result: 'ok' }
-    }
-    return { result: 'permanent', error: 'unknown item' }
+    return { result: 'ok' }
   } catch (e) {
-    if (isNetworkError(e)) return { result: 'transient', error: String((e as Error).message) }
-    return { result: 'permanent', error: String((e as Error).message ?? e) }
+    return classify(e)
   }
 }
 
 async function afterSuccess(item: OutboxItem) {
-  if (item.kind === 'insert' && item.table === 'labour_movements') {
-    await db.movements.update(item.id, { pending: 0 })
-  }
+  if (item.kind === 'insert' && item.table === 'labour_movements') await db.movements.update(item.id, { pending: 0 })
 }
 
 /** Push queued items in order. Stops at the first transient failure to keep ordering. */
@@ -84,8 +65,7 @@ export async function processOutbox(): Promise<void> {
   setState('syncing')
   let final: SyncState = 'idle'
   try {
-    const { data: sess } = await supabase.auth.getSession()
-    if (!sess.session) { final = 'auth'; return }
+    if (!guardToken.get()) { final = 'auth'; return }
     const items = await db.outbox.where('status').equals('pending').sortBy('seq')
     for (const item of items) {
       const r = await runItem(item)
@@ -117,48 +97,43 @@ export async function retryErrors() {
   await processOutbox()
 }
 
+interface Bootstrap {
+  labourers: Labourer[]
+  contractors: Contractor[]
+  movements: LabourMovement[]
+  inside: LabourMovement[]
+  mistakes: { id: string; entry_id: string; register: string; reason: string; at: string }[]
+  counts: { labour: number; visitors: number; vehicles: number }
+  token?: string
+}
+
 /** Pull reference data + today's entries for the unit into the local cache. */
 export async function refreshCaches(unitId: string): Promise<boolean> {
   if (!navigator.onLine) return false
   try {
-    const [lab, con, mov, inside, mistakes, counts] = await Promise.all([
-      supabase.from('labourers').select('id, unit_id, name, contractor_id, photo_path, status, updated_at').eq('unit_id', unitId).in('status', ['approved', 'pending']),
-      supabase.from('contractors').select('id, unit_id, name, active').eq('unit_id', unitId).eq('active', true),
-      supabase.from('labour_movements').select('id, unit_id, labourer_id, direction, at, device_at, guard_id, carrying_photo_path, voided_at, void_reason').eq('unit_id', unitId).gte('at', istDayStart()).order('at', { ascending: false }).limit(1000),
-      supabase.from('labour_inside').select('id, unit_id, labourer_id, direction, at, carrying_photo_path').eq('unit_id', unitId),
-      supabase.from('mistake_reports').select('id, entry_id, register, reason, at').eq('unit_id', unitId).gte('at', istDayStart()),
-      supabase.from('inside_counts').select('labour, visitors, vehicles').eq('unit_id', unitId).maybeSingle(),
-    ])
-    if (lab.error || con.error || mov.error || inside.error || mistakes.error) return false
-
+    const b = await api.get<Bootstrap>('/api/guard/bootstrap', guardToken.get())
+    if (b.token) guardToken.set(b.token)
     const pendingLabourerIds = new Set((await db.outbox.where('status').anyOf('pending', 'error').toArray()).filter((o) => o.table === 'labourers').map((o) => o.id))
-    const contractors = con.data as Contractor[]
-    const cname = new Map(contractors.map((c) => [c.id, c.name]))
-    const labourers: Labourer[] = (lab.data as Labourer[]).map((l) => ({ ...l, contractor_name: l.contractor_id ? cname.get(l.contractor_id) ?? null : null }))
-
     await db.transaction('rw', [db.labourers, db.contractors, db.movements, db.mistakes], async () => {
       const keepLocal = await db.labourers.filter((l) => pendingLabourerIds.has(l.id)).toArray()
       await db.labourers.clear()
-      await db.labourers.bulkPut([...labourers, ...keepLocal])
+      await db.labourers.bulkPut([...b.labourers, ...keepLocal])
       await db.contractors.clear()
-      await db.contractors.bulkPut(contractors)
+      await db.contractors.bulkPut(b.contractors)
       const pendingMov = await db.movements.where('pending').equals(1).toArray()
       await db.movements.clear()
-      const rows: LabourMovement[] = [
-        ...(inside.data as LabourMovement[]).map((m) => ({ ...m, pending: 0 })),
-        ...(mov.data as LabourMovement[]).map((m) => ({ ...m, pending: 0 })),
-      ]
-      await db.movements.bulkPut(rows)
+      await db.movements.bulkPut([...b.inside, ...b.movements].map((m) => ({ ...m, pending: 0 })))
       await db.movements.bulkPut(pendingMov)
       await db.mistakes.clear()
-      await db.mistakes.bulkPut(mistakes.data ?? [])
+      await db.mistakes.bulkPut(b.mistakes)
     })
     await kvSet('cache.refreshedAt', new Date().toISOString())
     await kvSet('cache.unit', unitId)
-    if (counts.data) await kvSet('inside.counts', { visitors: Number(counts.data.visitors ?? 0), vehicles: Number(counts.data.vehicles ?? 0) })
+    await kvSet('inside.counts', { visitors: Number(b.counts.visitors ?? 0), vehicles: Number(b.counts.vehicles ?? 0) })
     void prunePhotoCache()
     return true
-  } catch {
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401) setState('auth')
     return false
   }
 }

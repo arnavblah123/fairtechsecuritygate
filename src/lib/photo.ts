@@ -1,6 +1,6 @@
 import imageCompression from 'browser-image-compression'
 import { db } from './db'
-import { supabase, PHOTOS_BUCKET } from './supabase'
+import { api } from './http'
 
 /** Compress a captured image to ~200 KB JPEG, max 1280 px on the long side. */
 export async function compressPhoto(file: File | Blob): Promise<Blob> {
@@ -40,12 +40,8 @@ export async function photoUrl(path: string | null | undefined, keep = false): P
     return u
   }
   if (!navigator.onLine) return null
-  const { data, error } = await supabase.storage.from(PHOTOS_BUCKET).createSignedUrl(path, 3600)
-  if (error || !data) return null
   try {
-    const res = await fetch(data.signedUrl)
-    if (!res.ok) return null
-    const blob = await res.blob()
+    const blob = await api.blob(`/api/photos/${path}`)
     await storePhotoLocally(path, blob, keep)
     const u = URL.createObjectURL(blob)
     urlCache.set(path, u)

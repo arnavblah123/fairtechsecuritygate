@@ -7,3 +7,4 @@ dev-dist
 supabase/.temp
 *.log
 *.tsbuildinfo
+.local

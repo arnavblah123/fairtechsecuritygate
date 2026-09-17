@@ -1,11 +1,19 @@
 import { useEffect, useState } from 'react'
-import { supabase } from '../lib/supabase'
+import { adminToken, api } from '../lib/http'
 
 export const UNITS = [
   { id: 'dehu', name: 'Dehu (Pune)' },
   { id: 'savli', name: 'Savli (Baroda)' },
 ] as const
 export type AdminUnit = (typeof UNITS)[number]['id']
+
+export const admin = {
+  get: <T,>(path: string) => api.get<T>(path, adminToken.get()),
+  post: <T,>(path: string, body?: unknown) => api.post<T>(path, body, adminToken.get()),
+  patch: <T,>(path: string, body?: unknown) => api.patch<T>(path, body, adminToken.get()),
+  putBlob: (path: string, blob: Blob) => api.putBlob(path, blob, adminToken.get()),
+  blob: (path: string) => api.blob(path, adminToken.get()),
+}
 
 export function useUnit(): [AdminUnit, (u: AdminUnit) => void] {
   const [u, setU] = useState<AdminUnit>(() => (localStorage.getItem('admin.unit') as AdminUnit) || 'dehu')
@@ -22,21 +30,29 @@ export function UnitTabs({ unit, onChange }: { unit: AdminUnit; onChange: (u: Ad
   )
 }
 
-/** Signed URL for admin photo previews (no local caching needed). */
-export function useSignedUrl(path: string | null | undefined) {
+const urlCache = new Map<string, string>()
+
+/** Object URL for an admin photo preview (fetched through the API with the admin token). */
+export function usePhoto(path: string | null | undefined) {
   const [url, setUrl] = useState<string | null>(null)
   useEffect(() => {
     let alive = true
     setUrl(null)
     if (!path) return
-    void supabase.storage.from('photos').createSignedUrl(path, 3600).then(({ data }) => { if (alive && data) setUrl(data.signedUrl) })
+    const cached = urlCache.get(path)
+    if (cached) { setUrl(cached); return }
+    void admin.blob(`/api/photos/${path}`).then((b) => {
+      const u = URL.createObjectURL(b)
+      urlCache.set(path, u)
+      if (alive) setUrl(u)
+    }).catch(() => undefined)
     return () => { alive = false }
   }, [path])
   return url
 }
 
 export function Thumb({ path, size = 48 }: { path: string | null | undefined; size?: number }) {
-  const url = useSignedUrl(path)
+  const url = usePhoto(path)
   return url ? <img src={url} alt="" style={{ width: size, height: size }} className="rounded object-cover" /> : <div style={{ width: size, height: size }} className="rounded bg-gray-200" />
 }
 

@@ -7,7 +7,7 @@ import LangToggle from '../components/LangToggle'
 import { db } from '../lib/db'
 import { useT } from '../lib/i18n'
 import { setGuardSession } from '../lib/session'
-import { supabase } from '../lib/supabase'
+import { guardToken } from '../lib/http'
 import { useOnline, usePendingCount } from '../lib/sync'
 import { fmtTime, istDayStart } from '../lib/time'
 import { useGuard } from './GuardApp'
@@ -49,10 +49,10 @@ export default function Home() {
   const entries = useTodayEntries()
   const [menu, setMenu] = useState(false)
 
-  const logout = async () => {
+  const logout = () => {
     if (!confirm(t('logout_confirm'))) return
     setGuardSession(null)
-    await supabase.auth.signOut({ scope: 'local' }).catch(() => undefined)
+    guardToken.set(null)
     nav('/login', { replace: true })
   }
 
@@ -120,7 +120,7 @@ export default function Home() {
             <div className="mb-1 text-sm font-semibold text-gray-600">{t('language')}</div>
             <LangToggle />
             <div className="mt-3 grid gap-3">
-              <BigButton variant="danger" icon="🚪" onClick={() => void logout()}>{t('logout')}</BigButton>
+              <BigButton variant="danger" icon="🚪" onClick={logout}>{t('logout')}</BigButton>
               <BigButton variant="plain" onClick={() => setMenu(false)}>{t('close')}</BigButton>
             </div>
           </div>
