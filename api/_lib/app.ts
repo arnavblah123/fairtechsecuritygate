@@ -317,6 +317,81 @@ admin.patch('/contractors/:id', async (c) => {
   return c.json({ ok: true })
 })
 
+// Companies (vendors / transporters / service firms)
+const COMPANY_CATS = ['raw_material', 'consumables', 'labour', 'repair', 'transport', 'rent', 'other']
+admin.get('/companies', async (c) => {
+  const q = await db()
+  return c.json(await q.query('select id, unit_id, name, category, active from companies order by name'))
+})
+admin.post('/companies', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { unit_id?: string | null; name?: string; category?: string }
+  if (!body.name?.trim() || (body.unit_id && !UNITS.includes(body.unit_id))) return c.json({ error: 'bad_request' }, 400)
+  const q = await db()
+  const [row] = await q.query(`insert into companies (unit_id, name, category) values ($1, $2, $3)
+    on conflict (lower(name)) do update set active = true returning id`, [body.unit_id || null, body.name.trim(), COMPANY_CATS.includes(body.category ?? '') ? body.category : 'other'])
+  return c.json({ id: row.id })
+})
+admin.patch('/companies/:id', async (c) => {
+  const id = c.req.param('id')
+  const patch = pick(await c.req.json().catch(() => ({})), ['name', 'category', 'active', 'unit_id'])
+  if (patch.category !== undefined && !COMPANY_CATS.includes(patch.category as string)) return c.json({ error: 'bad_request' }, 400)
+  if (patch.unit_id !== undefined && patch.unit_id !== null && !UNITS.includes(patch.unit_id as string)) return c.json({ error: 'bad_request' }, 400)
+  const s = isUuid(id) ? updateSql('companies', id, patch) : null
+  if (!s) return c.json({ ok: true })
+  const q = await db()
+  await q.query(s.text, s.params)
+  return c.json({ ok: true })
+})
+
+// Bulk import (pasted CSV rows, parsed on the client). Existing names are skipped.
+admin.post('/import', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { type?: string; unit_id?: string; rows?: Record<string, string>[] }
+  const rows = (body.rows ?? []).filter((r) => r && typeof r.name === 'string' && r.name.trim()).slice(0, 2000)
+  if (!rows.length) return c.json({ error: 'no_rows' }, 400)
+  const q = await db()
+  let inserted = 0
+  let skipped = 0
+  if (body.type === 'contractors') {
+    if (!UNITS.includes(body.unit_id ?? '')) return c.json({ error: 'bad_unit' }, 400)
+    for (const r of rows) {
+      const res = await q.query('insert into contractors (unit_id, name) values ($1, $2) on conflict (unit_id, lower(name)) do nothing returning id', [body.unit_id, r.name.trim()])
+      res.length ? inserted++ : skipped++
+    }
+  } else if (body.type === 'companies') {
+    for (const r of rows) {
+      const cat = COMPANY_CATS.includes((r.category ?? '').trim().toLowerCase().replace(/ /g, '_')) ? (r.category ?? '').trim().toLowerCase().replace(/ /g, '_') : 'other'
+      const unit = UNITS.includes((r.unit ?? '').trim().toLowerCase()) ? (r.unit ?? '').trim().toLowerCase() : null
+      const res = await q.query('insert into companies (unit_id, name, category) values ($1, $2, $3) on conflict (lower(name)) do nothing returning id', [unit, r.name.trim(), cat])
+      res.length ? inserted++ : skipped++
+    }
+  } else if (body.type === 'labourers') {
+    if (!UNITS.includes(body.unit_id ?? '')) return c.json({ error: 'bad_unit' }, 400)
+    const cons = await q.query<{ id: string; name: string }>('select id, name from contractors where unit_id = $1', [body.unit_id])
+    const existing = new Set((await q.query<{ name: string }>('select name from labourers where unit_id = $1', [body.unit_id])).map((x) => x.name.trim().toLowerCase()))
+    for (const r of rows) {
+      const name = r.name.trim()
+      if (existing.has(name.toLowerCase())) { skipped++; continue }
+      let contractorId: string | null = null
+      const cname = (r.contractor ?? '').trim()
+      if (cname) {
+        let con = cons.find((x) => x.name.toLowerCase() === cname.toLowerCase())
+        if (!con) {
+          const [made] = await q.query<{ id: string; name: string }>('insert into contractors (unit_id, name) values ($1, $2) on conflict (unit_id, lower(name)) do update set active = true returning id, name', [body.unit_id, cname])
+          con = made
+          cons.push(made)
+        }
+        contractorId = con.id
+      }
+      await q.query('insert into labourers (id, unit_id, name, contractor_id, status) values ($1, $2, $3, $4, $5)', [crypto.randomUUID(), body.unit_id, name, contractorId, 'approved'])
+      existing.add(name.toLowerCase())
+      inserted++
+    }
+  } else {
+    return c.json({ error: 'bad_type' }, 400)
+  }
+  return c.json({ inserted, skipped })
+})
+
 // Guards & PINs
 async function setPin(guardId: string, unitId: string, pin: string): Promise<string | null> {
   if (!/^\d{4}$/.test(pin)) return 'PIN must be 4 digits'

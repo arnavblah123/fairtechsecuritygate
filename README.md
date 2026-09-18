@@ -28,13 +28,21 @@ Design and data model: [docs/DESIGN.md](docs/DESIGN.md).
 
 Free limits: Neon 0.5 GB data (years of entries), Vercel Blob 1 GB photos (about 8,000 photos at the app's compression). Photos are deleted after 90 days; if the store fills earlier, the cleanup job removes the oldest first.
 
-### 3. First data (admin)
+### 3. Load your existing lists
+- **Vendors and contractors from Drive**: in the Neon SQL editor, paste and run `db/seed_from_drive.sql`
+  (67 companies from the purchase vendor list, 12 labour contractors). Safe to re-run.
+- **Labourers, more contractors, more companies**: Admin → **Import**. Paste rows copied from Excel or Google Sheets
+  (one per line: `name, contractor` for labourers; `name, category, unit` for companies) or pick a CSV file.
+  Names that already exist are skipped.
+- If a list lives in another app's Supabase project: Table Editor → open the table → **Export → CSV**, then use Import.
+
+### 4. First data (admin)
 1. Open `https://<your-app>.vercel.app/admin`. The first visit shows **Create admin account**: enter your email and a password. This form disappears once an admin exists.
 2. **Contractors**: add the contractors for each unit.
 3. **Labourers**: add name, contractor and photo for each unit.
 4. **Guards & PINs**: add each guard with a 4-digit PIN (unique within the unit).
 
-### 4. Guard phone
+### 5. Guard phone
 1. Open the app URL in Chrome → menu → **Add to Home screen**.
 2. Open it from the home screen. First time: pick the factory, then the guard enters the PIN.
    The phone is now locked to that unit (visible under Admin → Devices).

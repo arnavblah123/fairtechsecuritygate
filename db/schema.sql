@@ -289,3 +289,18 @@ create or replace view inside_counts as
     (select coalesce(sum(persons),0) from visitors v where v.unit_id = u.id and v.out_at is null and v.voided_at is null)::int as visitors,
     (select count(*) from vehicles v where v.unit_id = u.id and v.out_at is null and v.voided_at is null)::int as vehicles
   from units u;
+
+-- ---------------------------------------------------------------------------
+-- Companies: vendors, transporters, service/maintenance firms. Used to pick a
+-- company for visitors and vehicles instead of typing. unit_id null = both units.
+-- ---------------------------------------------------------------------------
+create table if not exists companies (
+  id uuid primary key default gen_random_uuid(),
+  unit_id text references units(id),
+  name text not null,
+  category text not null default 'other' check (category in ('raw_material','consumables','labour','repair','transport','rent','other')),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+create unique index if not exists companies_name_key on companies (lower(name));
+create unique index if not exists contractors_unit_name_key on contractors (unit_id, lower(name));
