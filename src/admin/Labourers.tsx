@@ -3,7 +3,8 @@ import { compressPhoto, newPhotoPath } from '../lib/photo'
 import { fmtDateTime } from '../lib/time'
 import { Thumb, UnitTabs, admin, errMsg, useUnit } from './lib'
 
-interface Lab { id: string; unit_id: string; name: string; contractor_id: string | null; photo_path: string | null; status: string; created_at: string; created_by_guard_id: string | null }
+interface Lab { id: string; unit_id: string; name: string; contractor_id: string | null; photo_path: string | null; status: string; skill: string | null; external_code: string | null; created_at: string; created_by_guard_id: string | null }
+interface SyncStatus { configured: boolean; lastAt: string | null; lastResult: string | null }
 interface Con { id: string; name: string; active: boolean }
 type Tab = 'approved' | 'pending' | 'inactive'
 
@@ -20,11 +21,12 @@ export default function Labourers() {
   const [file, setFile] = useState<File | null>(null)
   const [edit, setEdit] = useState<Lab | null>(null)
   const [mergeTarget, setMergeTarget] = useState('')
+  const [sync, setSync] = useState<SyncStatus | null>(null)
 
   const load = async () => {
     try {
-      const [l, c] = await Promise.all([admin.get<Lab[]>(`/api/admin/labourers?unit=${unit}`), admin.get<Con[]>(`/api/admin/contractors?unit=${unit}`)])
-      setRows(l); setCons(c.filter((x) => x.active))
+      const [l, c, st] = await Promise.all([admin.get<Lab[]>(`/api/admin/labourers?unit=${unit}`), admin.get<Con[]>(`/api/admin/contractors?unit=${unit}`), admin.get<SyncStatus>('/api/admin/sync-status')])
+      setRows(l); setCons(c.filter((x) => x.active)); setSync(st)
     } catch (e) { setError(errMsg(e)) }
   }
   useEffect(() => { void load() }, [unit]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -66,6 +68,16 @@ export default function Labourers() {
     <div>
       <UnitTabs unit={unit} onChange={setUnit} />
       {error && <p className="mb-2 text-red-700">{error}</p>}
+      <div className="mb-3 flex flex-wrap items-center gap-2 rounded border border-blue-200 bg-blue-50 p-2 text-sm">
+        {sync?.configured ? (
+          <>
+            <button type="button" className="a-btn" disabled={busy} onClick={() => void run(async () => { const r = await admin.post<{ error?: string }>('/api/admin/sync-production'); if (r.error) throw new Error(r.error) })}>Sync from production now</button>
+            <span>Linked to the production app. Automatic sync runs hourly. {sync.lastAt ? `Last: ${fmtDateTime(sync.lastAt)} · ${sync.lastResult ?? ''}` : 'Not synced yet.'}</span>
+          </>
+        ) : (
+          <span>Not linked to the production app. Add <code>GATE_PRODUCTION_DATABASE_URL</code> in Vercel to mirror its employee list here automatically.</span>
+        )}
+      </div>
 
       <form onSubmit={add} className="mb-4 flex flex-wrap items-end gap-2 rounded border p-3">
         <label className="flex flex-col text-sm">Name<input className="a-input" value={name} onChange={(e) => setName(e.target.value)} required /></label>
@@ -89,12 +101,13 @@ export default function Labourers() {
       </div>
 
       <table className="a-table">
-        <thead><tr><th></th><th>Name</th><th>Contractor</th><th>Status</th><th>Added</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Name</th><th>Code / skill</th><th>Contractor</th><th>Status</th><th>Added</th><th></th></tr></thead>
         <tbody>
           {shown.map((r) => (
             <tr key={r.id}>
               <td><Thumb path={r.photo_path} /></td>
-              <td>{edit?.id === r.id ? <input className="a-input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /> : r.name}</td>
+              <td>{edit?.id === r.id && !r.external_code ? <input className="a-input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /> : r.name}</td>
+              <td className="text-sm text-gray-600">{r.external_code ?? ''}{r.skill ? ` · ${r.skill}` : ''}{r.external_code ? <div className="text-xs text-blue-700">from production app</div> : null}</td>
               <td>{edit?.id === r.id ? (
                 <select className="a-input" value={edit.contractor_id ?? ''} onChange={(e) => setEdit({ ...edit, contractor_id: e.target.value || null })}>
                   <option value="">—</option>{cons.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}

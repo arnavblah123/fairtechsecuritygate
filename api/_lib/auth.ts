@@ -9,8 +9,8 @@ const GUARD_TTL = 30 * 24 * 3600
 const ADMIN_TTL = 7 * 24 * 3600
 
 function secret(): Uint8Array {
-  const s = process.env.JWT_SECRET
-  if (!s || s.length < 16) throw new Error('JWT_SECRET must be set (16+ characters)')
+  const s = process.env.GATE_JWT_SECRET || process.env.JWT_SECRET
+  if (!s || s.length < 16) throw new Error('GATE_JWT_SECRET must be set (16+ characters)')
   return new TextEncoder().encode(s)
 }
 

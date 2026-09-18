@@ -21,8 +21,8 @@ async function createDb(): Promise<Db> {
     await pg.exec(readFileSync(join(process.cwd(), 'db', 'schema.sql'), 'utf8'))
     return { query: async <T,>(text: string, params?: unknown[]) => (await pg.query<T>(text, params)).rows }
   }
-  const url = process.env.DATABASE_URL
-  if (!url) throw new Error('DATABASE_URL is not set')
+  const url = process.env.GATE_DATABASE_URL || process.env.DATABASE_URL
+  if (!url) throw new Error('GATE_DATABASE_URL is not set')
   const { neon } = await import('@neondatabase/serverless')
   const sql = neon(url)
   return { query: async <T,>(text: string, params?: unknown[]) => (await sql.query(text, params ?? [])) as T[] }

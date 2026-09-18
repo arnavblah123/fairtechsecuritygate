@@ -2,7 +2,7 @@ export {}
 // Local API server: PGlite database + photos in a folder. `npm run dev` starts this and Vite together.
 process.env.PGLITE_DIR ??= '.local/pglite'
 process.env.STORAGE_DIR ??= '.local/photos'
-process.env.JWT_SECRET ??= 'local-dev-secret-not-for-production'
+process.env.GATE_JWT_SECRET ??= 'local-dev-secret-not-for-production'
 const port = Number(process.env.API_PORT ?? 8787)
 
 const { serve } = await import('@hono/node-server')

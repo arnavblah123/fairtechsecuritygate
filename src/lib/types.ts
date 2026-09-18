@@ -28,6 +28,8 @@ export interface Labourer {
   contractor_name?: string | null
   photo_path: string | null
   status: 'approved' | 'pending' | 'rejected' | 'inactive'
+  skill?: string | null
+  external_code?: string | null
   updated_at?: string
 }
 

@@ -305,3 +305,15 @@ create table if not exists companies (
 create unique index if not exists companies_name_key on companies (lower(name));
 create unique index if not exists contractors_unit_name_key on contractors (unit_id, lower(name));
 create unique index if not exists staff_unit_name_key on staff (unit_id, lower(name));
+
+-- ---------------------------------------------------------------------------
+-- Live link to the production app: labourers mirrored from its Employee table.
+-- ---------------------------------------------------------------------------
+alter table labourers add column if not exists external_code text;
+alter table labourers add column if not exists skill text;
+create unique index if not exists labourers_external_code_key on labourers (external_code);
+create table if not exists settings (
+  key text primary key,
+  value text,
+  updated_at timestamptz not null default now()
+);

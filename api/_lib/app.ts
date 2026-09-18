@@ -4,6 +4,7 @@ import { db, insertSql, isUuid, pick, updateSql, type Row } from './db.js'
 import { storage, PHOTO_PATH } from './storage.js'
 import { requireRole, signToken, type Env, type GuardClaims } from './auth.js'
 import { IST_DAY_START } from './time.js'
+import { getSyncStatus, productionConfigured, syncFromProduction } from './prodsync.js'
 
 export const app = new Hono<Env>().basePath('/api')
 
@@ -18,9 +19,11 @@ const UNITS = ['dehu', 'savli']
 // Health: open /api/health in a browser to see what is configured and whether the database answers.
 // ---------------------------------------------------------------------------
 app.get('/health', async (c) => {
+  const jwt = process.env.GATE_JWT_SECRET || process.env.JWT_SECRET
   const config = {
-    DATABASE_URL: Boolean(process.env.DATABASE_URL || process.env.PGLITE_DIR !== undefined),
-    JWT_SECRET: Boolean(process.env.JWT_SECRET && process.env.JWT_SECRET.length >= 16),
+    DATABASE_URL: Boolean(process.env.GATE_DATABASE_URL || process.env.DATABASE_URL || process.env.PGLITE_DIR !== undefined),
+    JWT_SECRET: Boolean(jwt && jwt.length >= 16),
+    PRODUCTION_LINK: productionConfigured(),
     BLOB_STORE: Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_OIDC_TOKEN || process.env.STORAGE_DIR),
   }
   let database = 'ok'
@@ -33,10 +36,11 @@ app.get('/health', async (c) => {
     database = String((e as Error).message ?? e)
   }
   const ok = config.DATABASE_URL && config.JWT_SECRET && database === 'ok'
-  return c.json({ ok, config, database, admins, hint: !config.DATABASE_URL ? 'Add DATABASE_URL in Vercel → Settings → Environment Variables, then redeploy.'
-    : !config.JWT_SECRET ? 'Add JWT_SECRET (16+ characters) in Vercel → Settings → Environment Variables, then redeploy.'
+  return c.json({ ok, config, database, admins, hint: !config.DATABASE_URL ? 'Add GATE_DATABASE_URL in Vercel → Settings → Environment Variables, then redeploy.'
+    : !config.JWT_SECRET ? 'Add GATE_JWT_SECRET (16+ characters) in Vercel → Settings → Environment Variables, then redeploy.'
     : database !== 'ok' ? 'Database error. If it says a table does not exist, run db/schema.sql in the Neon SQL editor.'
-    : !config.BLOB_STORE ? 'Photos will fail until a Vercel Blob store is connected (Storage → Create → Blob), then redeploy.' : 'All good.' }, ok ? 200 : 500)
+    : !config.BLOB_STORE ? 'Photos will fail until a Vercel Blob store is connected (Storage → Create → Blob), then redeploy.'
+    : !config.PRODUCTION_LINK ? 'Optional: add GATE_PRODUCTION_DATABASE_URL to mirror labourers from the production app.' : 'All good.' }, ok ? 200 : 500)
 })
 const MAX_ATTEMPTS = 5
 const LOCK_MINUTES = 10
@@ -95,8 +99,9 @@ app.get('/guard/bootstrap', requireRole('guard'), async (c) => {
   const a = c.get('auth') as GuardClaims & { exp: number }
   const q = await db()
   const u = a.unit_id
+  await syncFromProduction() // at most once an hour; never throws
   const [labourers, contractors, movements, inside, mistakes, counts, unit] = await Promise.all([
-    q.query(`select l.id, l.unit_id, l.name, l.contractor_id, c.name as contractor_name, l.photo_path, l.status, l.updated_at
+    q.query(`select l.id, l.unit_id, l.name, l.contractor_id, c.name as contractor_name, l.photo_path, l.status, l.skill, l.external_code, l.updated_at
              from labourers l left join contractors c on c.id = l.contractor_id
              where l.unit_id = $1 and l.status in ('approved','pending') order by l.name`, [u]),
     q.query('select id, unit_id, name, active from contractors where unit_id = $1 and active order by name', [u]),
@@ -257,7 +262,7 @@ admin.get('/labourers', async (c) => {
   const u = unitParam(c)
   if (!u) return c.json({ error: 'bad_unit' }, 400)
   const q = await db()
-  return c.json(await q.query('select id, unit_id, name, contractor_id, photo_path, status, created_at, created_by_guard_id from labourers where unit_id = $1 order by name', [u]))
+  return c.json(await q.query('select id, unit_id, name, contractor_id, photo_path, status, skill, external_code, created_at, created_by_guard_id from labourers where unit_id = $1 order by name', [u]))
 })
 admin.post('/labourers', async (c) => {
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>
@@ -293,6 +298,10 @@ admin.post('/labourers/:id/merge', async (c) => {
   await q.query("update labourers set status = 'rejected' where id = $1", [id])
   return c.json({ ok: true })
 })
+
+// Live link to the production app
+admin.get('/sync-status', async (c) => c.json(await getSyncStatus()))
+admin.post('/sync-production', async (c) => c.json(await syncFromProduction({ force: true })))
 
 // Contractors
 admin.get('/contractors', async (c) => {

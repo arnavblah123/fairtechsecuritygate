@@ -20,22 +20,36 @@ Design and data model: [docs/DESIGN.md](docs/DESIGN.md).
 
    | Name | Value |
    |---|---|
-   | `DATABASE_URL` | Neon connection string |
-   | `JWT_SECRET` | any long random text (30+ characters) |
+   | `GATE_DATABASE_URL` | Neon connection string of this app's project |
+   | `GATE_JWT_SECRET` | any long random text (30+ characters) |
+   | `GATE_PRODUCTION_DATABASE_URL` | optional: connection string of the **production app's** Neon project, to mirror its employee list (see below) |
+
+   Names start with `GATE_` so they never clash with variables shared by your other apps. (`DATABASE_URL` and `JWT_SECRET` still work as fallbacks.)
 3. Click **Deploy**.
 4. Photos: in the project, open **Storage → Create Database → Blob**. Name it `gate-photos`, choose **Private** access, and connect it to the project (all environments). Vercel adds `BLOB_READ_WRITE_TOKEN` to the project by itself.
 5. **Deployments → ⋯ → Redeploy** once, so the API picks up the Blob token.
 
 Free limits: Neon 0.5 GB data (years of entries), Vercel Blob 1 GB photos (about 8,000 photos at the app's compression). Photos are deleted after 90 days; if the store fills earlier, the cleanup job removes the oldest first.
 
-### 3. Load your existing lists
+### 3. Live link to the production app (recommended)
+People are managed in the production app; the gate app only mirrors them. Set `GATE_PRODUCTION_DATABASE_URL` to the
+production app's Neon connection string (Neon console → that project → Connect → copy). The gate app then reads its
+`Employee` table (name, code, skill, unit, active) once an hour and whenever you press **Sync from production now**
+in Admin → Labourers. It never writes to the production database.
+
+- Dehu Unit-2 → Dehu, Savli Unit-3 → Savli. Employees of other units (Chinchwad Unit-1) and inactive employees are kept as *inactive* here.
+- Names of mirrored people cannot be edited in the gate app (change them in the production app). Photos and gate entries stay here.
+- A person a guard adds with NEW PERSON is linked automatically once the same name appears in the production app for that unit.
+- Safer option: in the production Neon project create a read-only role (Neon → Roles) and use its connection string.
+
+### 4. Load your other lists (one time)
 Easiest: open the **Raw** view of `db/setup_all.sql` on GitHub (the Raw button, not the normal code view, which
 only copies part of a long file), select all, copy, paste into the Neon SQL editor, Run. It contains the three
 files below in the right order and is safe to re-run.
 
 Or run them one by one in the Neon SQL editor, in this order. All are safe to re-run.
 1. `db/schema.sql` again (adds the companies table and name uniqueness).
-2. `db/seed_from_production.sql`: the 70 people from the production app's muster roster
+2. `db/seed_from_production.sql` (skip if the live link is set): the 70 people from the production app's roster file
    (Dehu Unit-2 → Dehu, Savli Unit-3 → Savli; Chinchwad Unit-1 people go to Dehu as *inactive*, reactivate the ones
    who use the Dehu gate) and 5 office staff for the visitor "whom to meet" list.
 3. `db/seed_from_drive.sql`: 67 companies from the purchase vendor list, 12 labour contractors.
@@ -44,13 +58,13 @@ Or run them one by one in the Neon SQL editor, in this order. All are safe to re
   Names that already exist are skipped.
 - If a list lives in another app's Supabase project: Table Editor → open the table → **Export → CSV**, then use Import.
 
-### 4. First data (admin)
+### 5. First data (admin)
 1. Open `https://<your-app>.vercel.app/admin`. The first visit shows **Create admin account**: enter your email and a password. This form disappears once an admin exists.
 2. **Contractors**: add the contractors for each unit.
 3. **Labourers**: add name, contractor and photo for each unit.
 4. **Guards & PINs**: add each guard with a 4-digit PIN (unique within the unit).
 
-### 5. Guard phone
+### 6. Guard phone
 1. Open the app URL in Chrome → menu → **Add to Home screen**.
 2. Open it from the home screen. First time: pick the factory, then the guard enters the PIN.
    The phone is now locked to that unit (visible under Admin → Devices).
