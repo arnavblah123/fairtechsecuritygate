@@ -29,7 +29,11 @@ Design and data model: [docs/DESIGN.md](docs/DESIGN.md).
 Free limits: Neon 0.5 GB data (years of entries), Vercel Blob 1 GB photos (about 8,000 photos at the app's compression). Photos are deleted after 90 days; if the store fills earlier, the cleanup job removes the oldest first.
 
 ### 3. Load your existing lists
-Run these in the Neon SQL editor, in this order. All are safe to re-run.
+Easiest: open the **Raw** view of `db/setup_all.sql` on GitHub (the Raw button, not the normal code view, which
+only copies part of a long file), select all, copy, paste into the Neon SQL editor, Run. It contains the three
+files below in the right order and is safe to re-run.
+
+Or run them one by one in the Neon SQL editor, in this order. All are safe to re-run.
 1. `db/schema.sql` again (adds the companies table and name uniqueness).
 2. `db/seed_from_production.sql`: the 70 people from the production app's muster roster
    (Dehu Unit-2 → Dehu, Savli Unit-3 → Savli; Chinchwad Unit-1 people go to Dehu as *inactive*, reactivate the ones
