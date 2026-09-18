@@ -1,6 +1,6 @@
 // Vercel entry: one serverless function for the whole API (vercel.json rewrites /api/* here).
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { app } from './src/app'
+import { app } from './_lib/app.js'
 
 export default async function handler(req: IncomingMessage & { body?: unknown }, res: ServerResponse) {
   const proto = (req.headers['x-forwarded-proto'] as string) || 'https'

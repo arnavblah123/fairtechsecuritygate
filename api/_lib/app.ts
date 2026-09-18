@@ -1,9 +1,9 @@
 import { Hono } from 'hono'
 import bcrypt from 'bcryptjs'
-import { db, insertSql, isUuid, pick, updateSql, type Row } from './db'
-import { storage, PHOTO_PATH } from './storage'
-import { requireRole, signToken, type Env, type GuardClaims } from './auth'
-import { IST_DAY_START } from './time'
+import { db, insertSql, isUuid, pick, updateSql, type Row } from './db.js'
+import { storage, PHOTO_PATH } from './storage.js'
+import { requireRole, signToken, type Env, type GuardClaims } from './auth.js'
+import { IST_DAY_START } from './time.js'
 
 export const app = new Hono<Env>().basePath('/api')
 
