@@ -13,6 +13,31 @@ app.onError((err, c) => {
 })
 
 const UNITS = ['dehu', 'savli']
+
+// ---------------------------------------------------------------------------
+// Health: open /api/health in a browser to see what is configured and whether the database answers.
+// ---------------------------------------------------------------------------
+app.get('/health', async (c) => {
+  const config = {
+    DATABASE_URL: Boolean(process.env.DATABASE_URL || process.env.PGLITE_DIR !== undefined),
+    JWT_SECRET: Boolean(process.env.JWT_SECRET && process.env.JWT_SECRET.length >= 16),
+    BLOB_STORE: Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_OIDC_TOKEN || process.env.STORAGE_DIR),
+  }
+  let database = 'ok'
+  let admins: number | null = null
+  try {
+    const q = await db()
+    const [row] = await q.query<{ n: number }>('select count(*)::int as n from admin_users')
+    admins = Number(row?.n ?? 0)
+  } catch (e) {
+    database = String((e as Error).message ?? e)
+  }
+  const ok = config.DATABASE_URL && config.JWT_SECRET && database === 'ok'
+  return c.json({ ok, config, database, admins, hint: !config.DATABASE_URL ? 'Add DATABASE_URL in Vercel → Settings → Environment Variables, then redeploy.'
+    : !config.JWT_SECRET ? 'Add JWT_SECRET (16+ characters) in Vercel → Settings → Environment Variables, then redeploy.'
+    : database !== 'ok' ? 'Database error. If it says a table does not exist, run db/schema.sql in the Neon SQL editor.'
+    : !config.BLOB_STORE ? 'Photos will fail until a Vercel Blob store is connected (Storage → Create → Blob), then redeploy.' : 'All good.' }, ok ? 200 : 500)
+})
 const MAX_ATTEMPTS = 5
 const LOCK_MINUTES = 10
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -209,14 +234,17 @@ admin.get('/me', (c) => c.json({ email: (c.get('auth') as { email: string }).ema
 
 admin.get('/live', async (c) => {
   const q = await db()
-  const [counts, movements, devices] = await Promise.all([
+  const [counts, movements, devices, inside] = await Promise.all([
     q.query('select * from inside_counts'),
     q.query(`select m.id, m.unit_id, m.direction, m.at, m.offline, m.voided_at, l.name as labourer_name, l.photo_path, g.name as guard_name
              from labour_movements m join labourers l on l.id = m.labourer_id left join guards g on g.id = m.guard_id
              where m.at >= ${IST_DAY_START} order by m.at desc limit 200`),
     q.query('select id, unit_id, label, last_seen_at, active from devices order by last_seen_at desc nulls last'),
+    q.query(`select li.labourer_id, li.unit_id, li.name, li.photo_path, li.at as in_at, c.name as contractor_name
+             from labour_inside li left join contractors c on c.id = li.contractor_id
+             where li.direction = 'in' order by li.unit_id, li.name`),
   ])
-  return c.json({ counts, movements, devices })
+  return c.json({ counts, movements, devices, inside })
 })
 
 const unitParam = (c: { req: { query: (k: string) => string | undefined } }) => {
