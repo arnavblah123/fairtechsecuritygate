@@ -29,8 +29,12 @@ Design and data model: [docs/DESIGN.md](docs/DESIGN.md).
 Free limits: Neon 0.5 GB data (years of entries), Vercel Blob 1 GB photos (about 8,000 photos at the app's compression). Photos are deleted after 90 days; if the store fills earlier, the cleanup job removes the oldest first.
 
 ### 3. Load your existing lists
-- **Vendors and contractors from Drive**: in the Neon SQL editor, paste and run `db/seed_from_drive.sql`
-  (67 companies from the purchase vendor list, 12 labour contractors). Safe to re-run.
+Run these in the Neon SQL editor, in this order. All are safe to re-run.
+1. `db/schema.sql` again (adds the companies table and name uniqueness).
+2. `db/seed_from_production.sql`: the 70 people from the production app's muster roster
+   (Dehu Unit-2 → Dehu, Savli Unit-3 → Savli; Chinchwad Unit-1 people go to Dehu as *inactive*, reactivate the ones
+   who use the Dehu gate) and 5 office staff for the visitor "whom to meet" list.
+3. `db/seed_from_drive.sql`: 67 companies from the purchase vendor list, 12 labour contractors.
 - **Labourers, more contractors, more companies**: Admin → **Import**. Paste rows copied from Excel or Google Sheets
   (one per line: `name, contractor` for labourers; `name, category, unit` for companies) or pick a CSV file.
   Names that already exist are skipped.

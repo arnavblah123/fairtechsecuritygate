@@ -1,0 +1,85 @@
+-- Seed from the fairtechproduction repo (prisma/import/employees.json, the unit muster registers).
+-- Paste into the Neon SQL editor after schema.sql. Safe to re-run: names already present in the unit are skipped.
+-- Dehu Unit-2 -> dehu, Savli Unit-3 -> savli.
+-- Chinchwad Unit-1 has no gate in this app, so its people are added to Dehu as INACTIVE;
+-- reactivate anyone who uses the Dehu gate under Admin -> Labourers -> Inactive.
+
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Atmaram D. Mahajan', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Atmaram D. Mahajan')); -- U1-01 Manager
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Jagdish Kalaskar', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Jagdish Kalaskar')); -- U1-02 Purchase Mgr
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Rajguru Hrushikesh', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Rajguru Hrushikesh')); -- U1-03 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Hari Pillay', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Hari Pillay')); -- U1-04 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Nirmal Singh', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Nirmal Singh')); -- U1-05 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Arjun Rajbhar', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Arjun Rajbhar')); -- U1-06 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Santosh Gore', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Santosh Gore')); -- U1-07 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Mohammad Salmani', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Mohammad Salmani')); -- U1-08 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Golu', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Golu')); -- U1-09 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Dyaneshwar', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Dyaneshwar')); -- U1-10 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Sunil Yadav', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Sunil Yadav')); -- U1-11 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Swapnil Mehtar', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Swapnil Mehtar')); -- U1-12 Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Dipak Shankar Surve', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Dipak Shankar Surve')); -- U1-13 Store Keeper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Rakendra', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Rakendra')); -- U1-14 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Chandresh Paswan(Shyam)', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Chandresh Paswan(Shyam)')); -- U1-15 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Ghanshyam', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Ghanshyam')); -- U1-16 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Aditya Kushwaha', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Aditya Kushwaha')); -- U1-17 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Vinod Shukla', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Vinod Shukla')); -- U1-18 Engineer
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Vijay Naik', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Vijay Naik')); -- U1-19 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Avnish Vishvakarma', 'inactive' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Avnish Vishvakarma')); -- U1-20 Semi Skilled
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Manish Mer', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Manish Mer')); -- U3-02 Engineer
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Santosh', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Santosh')); -- U3-03 Fitter
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Mukesh', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Mukesh')); -- U3-31 Fitter
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Ajay Paswan', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Ajay Paswan')); -- U3-05 Fitter
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Ranjit Kumar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Ranjit Kumar')); -- U3-06 Fitter
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Natvarbhai', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Natvarbhai')); -- U3-08 Operator
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Jamshed', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Jamshed')); -- U3-09 Operator
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Dharmendra Kaka', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Dharmendra Kaka')); -- U3-10 Operator
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Dharmveer', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Dharmveer')); -- U3-11 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Abu Ansari', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Abu Ansari')); -- U3-50 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Mandeep', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Mandeep')); -- U3-13 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Vijay Kumar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Vijay Kumar')); -- U3-14 Gas Cutter
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Ranjit Parmar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Ranjit Parmar')); -- U3-15 Expansion
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Jivan Parmar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Jivan Parmar')); -- U3-16 Grinder Man
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Mukesh Kumar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Mukesh Kumar')); -- U3-24 Gas Cutter
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Suren', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Suren')); -- U3-25 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Prem', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Prem')); -- U3-26 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Golu Kumar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Golu Kumar')); -- U3-27 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Chandra Sihn', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Chandra Sihn')); -- U3-28 Grinder Man
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Ashokbhai Parmar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Ashokbhai Parmar')); -- U3-34 Operator
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Karan', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Karan')); -- U3-36 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Avinash', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Avinash')); -- U3-37 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Sohail', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Sohail')); -- U3-51 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Chandan', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Chandan')); -- U3-52 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Sujeet', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Sujeet')); -- U3-53 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Ajay Kumar', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Ajay Kumar')); -- U3-54 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Anuj', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Anuj')); -- U3-55 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Rakendra', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Rakendra')); -- U3-56 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Manjulal Harijan', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Manjulal Harijan')); -- U3-57 Sweeper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'savli', 'Chiman Kaka', 'approved' where not exists (select 1 from labourers where unit_id = 'savli' and lower(name) = lower('Chiman Kaka')); -- U3-58 Security
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Kanhiya', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Kanhiya')); -- U2-01 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Aditya', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Aditya')); -- U2-02 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Harindra Paswan', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Harindra Paswan')); -- U2-03 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Md Juman', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Md Juman')); -- U2-04 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Md Raju', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Md Raju')); -- U2-05 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Suraj Yadav', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Suraj Yadav')); -- U2-06 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Rakesh Paswan', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Rakesh Paswan')); -- U2-07 Cutter
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Arvind Yadav', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Arvind Yadav')); -- U2-08 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Sagar', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Sagar')); -- U2-09 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Mithun', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Mithun')); -- U2-10 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Virendar', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Virendar')); -- U2-11 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Dilip Kumar', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Dilip Kumar')); -- U2-12 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Rajan', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Rajan')); -- U2-13 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Samir', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Samir')); -- U2-14 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Monu', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Monu')); -- U2-15 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Bolu', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Bolu')); -- U2-16 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Abhay', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Abhay')); -- U2-17 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Vinay', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Vinay')); -- U2-18 Welder
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Dilip Patil', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Dilip Patil')); -- U2-19 Helper
+insert into labourers (id, unit_id, name, status) select gen_random_uuid(), 'dehu', 'Suraj K', 'approved' where not exists (select 1 from labourers where unit_id = 'dehu' and lower(name) = lower('Suraj K')); -- U2-20 Helper
+
+-- Office staff for the visitor 'whom to meet' list.
+insert into staff (unit_id, name) values
+  ('dehu', 'Atmaram D. Mahajan'),
+  ('dehu', 'Jagdish Kalaskar'),
+  ('dehu', 'Vinod Shukla'),
+  ('dehu', 'Dipak Shankar Surve'),
+  ('savli', 'Manish Mer')
+on conflict (unit_id, lower(name)) do nothing;

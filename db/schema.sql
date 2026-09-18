@@ -304,3 +304,4 @@ create table if not exists companies (
 );
 create unique index if not exists companies_name_key on companies (lower(name));
 create unique index if not exists contractors_unit_name_key on contractors (unit_id, lower(name));
+create unique index if not exists staff_unit_name_key on staff (unit_id, lower(name));
