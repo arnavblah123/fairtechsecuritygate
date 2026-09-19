@@ -26,6 +26,7 @@ interface View {
   pending: boolean
   voided: string | null
   voidReason?: string | null
+  flag?: string | null
   extraPhotos: { label: string; path: string }[]
 }
 
@@ -44,7 +45,7 @@ export default function EntryDetail() {
       const l = await db.labourers.get(m.labourer_id)
       return { mistake, view: {
         title: l ? localName(l, lang) : '?', second: l ? secondaryName(l, lang) : null, photo: l?.photo_path ?? null, keepPhoto: true,
-        lines: [l?.contractor_name ?? ''].filter(Boolean), direction: m.direction, at: m.at, pending: m.pending === 1, voided: m.voided_at, voidReason: m.void_reason,
+        lines: [l?.contractor_name ?? ''].filter(Boolean), direction: m.direction, at: m.at, pending: m.pending === 1, voided: m.voided_at, voidReason: m.void_reason, flag: m.flag,
         extraPhotos: m.carrying_photo_path ? [{ label: t('carrying_photo'), path: m.carrying_photo_path }] : [],
       } }
     }
@@ -104,6 +105,7 @@ export default function EntryDetail() {
             </>
           )}
         </div>
+        {v.flag && <p className="rounded-2xl bg-red-100 p-3 text-center text-xl font-bold text-red-800">⚠️ {t(`flag_${v.flag}`)}<br /><span className="text-base font-normal">{t('flagged_office')}</span></p>}
         {v.pending ? <p className="text-center text-orange-700">{t('pending_send')}</p> : null}
         {v.voided && <p className="rounded-2xl bg-gray-200 p-3 text-center text-xl">{t('voided')}{v.voidReason ? `: ${v.voidReason}` : ''}</p>}
         {v.extraPhotos.map((p) => (

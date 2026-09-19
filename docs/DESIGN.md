@@ -44,7 +44,7 @@ Conventions
 | `daily_reports` | `id`, `unit_id`, `report_date`, `sent_at`, `error` — one row per unit per day so a failed send is visible |
 
 Database rules enforced by constraints/triggers (not just the UI)
-- `vehicles`: `purpose = material_in` requires `challan_photo_path`; `material_out` / `scrap_out` require both `loaded_photo_path` and `gatepass_photo_path`.
+- `vehicles`: `purpose = material_in` requires `challan_photo_path`. `material_out` / `scrap_out` are entered with the plate photo only; the loaded-vehicle photo is attached later (`attach_vehicle_photo`) and `mark_vehicle_out` refuses until it exists. Gate pass photo dropped.
 - `labour_movements`: the app offers the expected next direction (IN or OUT) big, with a small link for the other one. Not enforced in the database because labour stays inside for days and the register may start mid-way.
 - A visitor / vehicle can be marked OUT only once; OUT sets `out_at = now()`.
 - Guards can INSERT, never UPDATE or DELETE. The API whitelists the columns a guard may send and forces `unit_id`, `guard_id` and `device_id` from the token. Marking OUT, handover, and the carrying photo go through specific API calls that only change the allowed columns.
@@ -79,12 +79,12 @@ All labels come from `src/locales/{en,hi,mr,gu}.json`. Minimum tap target 56 px,
 | 2 | **Login** | Guard name buttons? No — just a 4-digit PIN pad (big keys). Language toggle (EN / हिंदी / मराठी / ગુજરાતી). Pending-sync count if any. |
 | 3 | **Home** | Top: *Inside now: N people, N vehicles*, *N pending* sync badge, unit name, guard name. Four full-width buttons with icons: LABOUR, VISITOR, VEHICLE, EMERGENCY. Below: today's entries, newest first, with thumbnail, name/plate, IN/OUT, time. Tap an entry → Entry detail. ⋯ menu: Handover, Incident, Language, Logout. |
 | 4 | **Labour grid** | Search box (name). Grid of photo + name for approved and today's pending labourers of this unit. NEW PERSON button at the bottom (sticky). |
-| 5 | **Labour IN / OUT** | Big photo + name + contractor. One big button: IN or OUT (whichever is next). On OUT, after saving: optional "Carrying something?" → camera → save. Blacklisted person → screen 16 instead. |
+| 5 | **Labour IN / OUT** | Big photo + name + contractor. Status line: inside since / last OUT / no entry. One big button: IN or OUT (whichever is next). The small link for the other direction warns and asks to confirm when it repeats the current status; the entry is saved with `flag = double_in / double_out`, shown to the guard and in admin Live. On OUT, after saving: optional "Carrying something?" → camera → save. Blacklisted person → screen 16 instead. |
 | 6 | **New person** | Camera → name → contractor (buttons) → IN. Person appears in the grid for today, flagged `pending` for admin. |
 | 7 | **Visitor IN** (one step per screen, big Next button) | Camera → name → company (optional, skip button) → purpose (6 buttons) → whom to meet (staff buttons) → ID type (4 buttons) → persons (1, with + / −) → IN. |
 | 8 | **Visitor OUT** | Photo cards of visitors currently inside with time inside → tap → confirm OUT. |
-| 9 | **Vehicle IN** | Camera (number plate) → plate (uppercase, big keyboard; blacklist check on this step) → type (6 buttons) → purpose (5 buttons) → driver name (optional) → extra photos required by purpose (challan; or loaded vehicle + gate pass) → IN. Cannot proceed without the required photos. |
-| 10 | **Vehicle OUT** | Cards of vehicles inside: plate photo, plate, type, purpose, time inside (red after 4 h). Tap → if entered Empty: "Loaded?" Yes/No; Yes requires a photo → OUT. |
+| 9 | **Vehicle IN** | Camera button (number plate) → plate (uppercase, big keyboard; blacklist check on this step) → type (6 buttons) → purpose (5 buttons) → driver name (optional) → challan photo for Material IN → IN. Material OUT / Scrap OUT go IN at once; their loaded-vehicle photo is taken later. |
+| 10 | **Vehicle OUT** | Cards of vehicles inside: plate photo, plate, type, purpose, time inside (red after 4 h), "loaded photo pending" for Material OUT / Scrap OUT. Tap → Material OUT / Scrap OUT: take the loaded-vehicle photo (can be done earlier and OUT later) → OUT. Entered Empty: "Loaded?" Yes/No; Yes requires a photo → OUT. |
 | 11 | **Emergency** (works fully offline) | Count at top. Emergency numbers as big call buttons (unit head, fire, hospital, admin). Then everyone inside with photos: labour, visitors (with persons count), vehicle drivers. |
 | 12 | **Handover** | Shows counts inside (labour / visitors / vehicles). Confirm → next guard's PIN pad → logged, next guard is now logged in. |
 | 13 | **Incident** | Camera → type (5 buttons) → short note (optional) → Send. Alert goes out on sync. |

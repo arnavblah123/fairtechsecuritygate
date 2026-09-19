@@ -3,7 +3,7 @@ import { fmtDateTime, fmtDuration, fmtTime, minutesBetween } from '../lib/time'
 import { Thumb, UNITS, admin, errMsg } from './lib'
 
 interface Counts { unit_id: string; labour: number; visitors: number; vehicles: number }
-interface Row { id: string; unit_id: string; direction: string; at: string; offline: boolean; voided_at: string | null; labourer_name: string; photo_path: string | null; guard_name: string | null }
+interface Row { id: string; unit_id: string; direction: string; at: string; offline: boolean; voided_at: string | null; flag: string | null; labourer_name: string; photo_path: string | null; guard_name: string | null }
 interface Device { id: string; unit_id: string; label: string | null; last_seen_at: string | null; active: boolean }
 interface Inside { labourer_id: string; unit_id: string; name: string; photo_path: string | null; in_at: string; contractor_name: string | null }
 interface VisitorRow { id: string; unit_id: string; name: string; company: string | null; purpose: string; meeting_name: string | null; persons: number; photo_path: string | null; in_at: string; out_at: string | null; voided_at: string | null; guard_name: string | null }
@@ -39,10 +39,16 @@ export default function Live() {
           const vehicles = (data?.vehicles ?? []).filter((r) => r.unit_id === u.id)
           const ins = today.filter((r) => r.direction === 'in' && !r.voided_at).length
           const outs = today.filter((r) => r.direction === 'out' && !r.voided_at).length
+          const flagged = today.filter((r) => r.flag && !r.voided_at)
           return (
             <section key={u.id} className="rounded border p-3">
               <h2 className="text-lg font-bold">{u.name}</h2>
               <p>Inside now: <b>{c?.labour ?? 0}</b> labour · <b>{c?.visitors ?? 0}</b> visitors · <b>{c?.vehicles ?? 0}</b> vehicles</p>
+              {flagged.length > 0 && (
+                <p className="mt-1 rounded border border-red-300 bg-red-50 p-2 text-sm text-red-800">
+                  <b>⚠ {flagged.length} flagged today:</b> {flagged.map((r) => `${r.labourer_name} (${r.flag === 'double_in' ? 'IN again while already IN' : 'OUT again while already OUT'} at ${fmtTime(r.at)}${r.guard_name ? `, guard ${r.guard_name}` : ''})`).join('; ')}
+                </p>
+              )}
               <p className="text-sm text-gray-600">Today: {ins} IN · {outs} OUT · Phones: {dev.length === 0 ? 'none yet' : dev.map((d) => `${d.label?.slice(0, 20) ?? d.id.slice(0, 8)} (seen ${d.last_seen_at ? fmtDateTime(d.last_seen_at) : 'never'})`).join(', ')}</p>
 
               <h3 className="mb-1 mt-3 font-semibold">Labour inside now ({inside.length})</h3>
@@ -104,9 +110,9 @@ export default function Live() {
                   <thead><tr><th></th><th>Name</th><th>Dir</th><th>Time</th><th>Guard</th></tr></thead>
                   <tbody>
                     {today.map((r) => (
-                      <tr key={r.id} className={r.voided_at ? 'line-through text-gray-400' : ''}>
+                      <tr key={r.id} className={r.voided_at ? 'line-through text-gray-400' : r.flag ? 'bg-red-50 text-red-800' : ''}>
                         <td><Thumb path={r.photo_path} size={32} /></td>
-                        <td>{r.labourer_name}</td>
+                        <td>{r.flag ? '⚠ ' : ''}{r.labourer_name}{r.flag ? <span className="block text-xs">{r.flag === 'double_in' ? 'IN again while already IN' : 'OUT again while already OUT'}</span> : null}</td>
                         <td className={r.direction === 'in' ? 'text-green-700 font-semibold' : 'text-orange-700 font-semibold'}>{r.direction.toUpperCase()}</td>
                         <td>{fmtTime(r.at)}{r.offline ? ' (offline)' : ''}{r.voided_at ? ' voided' : ''}</td>
                         <td>{r.guard_name}</td>

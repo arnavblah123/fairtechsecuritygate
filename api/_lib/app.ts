@@ -113,9 +113,9 @@ app.get('/guard/bootstrap', requireRole('guard'), async (c) => {
              from labourers l left join contractors c on c.id = l.contractor_id
              where l.unit_id = $1 and l.status in ('approved','pending') order by l.name`, [u]),
     q.query('select id, unit_id, name, active from contractors where unit_id = $1 and active order by name', [u]),
-    q.query(`select id, unit_id, labourer_id, direction, at, device_at, guard_id, carrying_photo_path, voided_at, void_reason
+    q.query(`select id, unit_id, labourer_id, direction, at, device_at, guard_id, carrying_photo_path, voided_at, void_reason, flag
              from labour_movements where unit_id = $1 and at >= ${IST_DAY_START} order by at desc limit 1000`, [u]),
-    q.query('select id, unit_id, labourer_id, direction, at, device_at, guard_id, carrying_photo_path from labour_inside where unit_id = $1', [u]),
+    q.query('select id, unit_id, labourer_id, direction, at, device_at, guard_id, carrying_photo_path, flag from labour_inside where unit_id = $1', [u]),
     q.query(`select id, entry_id, register, reason, at from mistake_reports where unit_id = $1 and at >= ${IST_DAY_START}`, [u]),
     q.query('select labour, visitors, vehicles from inside_counts where unit_id = $1', [u]),
     q.query('select id, name, default_language, unit_head_name, unit_head_phone from units where id = $1', [u]),
@@ -137,9 +137,9 @@ app.get('/guard/bootstrap', requireRole('guard'), async (c) => {
 // ---------------------------------------------------------------------------
 const ENTRY_COLUMNS: Record<string, string[]> = {
   labourers: ['id', 'name', 'contractor_id', 'photo_path'],
-  labour_movements: ['id', 'labourer_id', 'direction', 'device_at', 'carrying_photo_path'],
+  labour_movements: ['id', 'labourer_id', 'direction', 'device_at', 'carrying_photo_path', 'flag'],
   visitors: ['id', 'name', 'company', 'purpose', 'meeting_staff_id', 'meeting_name', 'persons', 'id_type', 'photo_path', 'device_at'],
-  vehicles: ['id', 'plate', 'vehicle_type', 'purpose', 'driver_name', 'plate_photo_path', 'challan_photo_path', 'loaded_photo_path', 'gatepass_photo_path', 'device_at'],
+  vehicles: ['id', 'plate', 'vehicle_type', 'purpose', 'driver_name', 'plate_photo_path', 'challan_photo_path', 'loaded_photo_path', 'device_at'],
   incidents: ['id', 'type', 'note', 'photo_path', 'device_at'],
   mistake_reports: ['id', 'register', 'entry_id', 'reason', 'device_at'],
 }
@@ -168,6 +168,9 @@ app.post('/guard/entries', requireRole('guard'), async (c) => {
     if (!isUuid(row.labourer_id) || !['in', 'out'].includes(row.direction as string)) return c.json({ error: 'bad_request' }, 400)
     const [lab] = await q.query('select 1 from labourers where id = $1 and unit_id = $2', [row.labourer_id, a.unit_id])
     if (!lab) return c.json({ error: 'unknown_labourer' }, 400)
+    // Flag a repeated direction (IN while already IN, OUT while already OUT) from the server's own record.
+    const [last] = await q.query<{ direction: string }>('select direction from labour_inside where labourer_id = $1', [row.labourer_id])
+    row.flag = last && last.direction === row.direction ? `double_${row.direction}` : null
     row.guard_id = a.guard_id
     row.device_id = a.device_id
   } else if (table === 'visitors') {
@@ -189,7 +192,6 @@ app.post('/guard/entries', requireRole('guard'), async (c) => {
     row.plate = normalizePlate(row.plate)
     if (!row.plate || !VEHICLE_TYPES.includes(row.vehicle_type as string) || !VEHICLE_PURPOSES.includes(row.purpose as string)) return c.json({ error: 'bad_request' }, 400)
     if (row.purpose === 'material_in' && !row.challan_photo_path) return c.json({ error: 'photo_required' }, 400)
-    if ((row.purpose === 'material_out' || row.purpose === 'scrap_out') && (!row.loaded_photo_path || !row.gatepass_photo_path)) return c.json({ error: 'photo_required' }, 400)
     row.driver_name = typeof row.driver_name === 'string' && row.driver_name.trim() ? row.driver_name.trim().slice(0, 120) : null
     row.in_guard_id = a.guard_id
     row.device_id = a.device_id
@@ -222,7 +224,20 @@ app.post('/guard/rpc/mark_visitor_out', requireRole('guard'), async (c) => {
   return c.json({ ok: true })
 })
 
-/** Vehicle OUT. A vehicle that came in empty says whether it leaves loaded (photo required if yes). */
+/** Material OUT / Scrap OUT: the loaded-vehicle photo, taken any time after loading and before OUT. Only fills an empty slot. */
+app.post('/guard/rpc/attach_vehicle_photo', requireRole('guard'), async (c) => {
+  const a = c.get('auth') as GuardClaims
+  const body = await c.req.json().catch(() => ({})) as { p_id?: string; p_path?: string }
+  if (!isUuid(body.p_id) || typeof body.p_path !== 'string' || !PHOTO_PATH.test(body.p_path) || !body.p_path.startsWith(a.unit_id + '/')) return c.json({ error: 'bad_request' }, 400)
+  const q = await db()
+  await q.query('update vehicles set loaded_photo_path = $2 where id = $1 and unit_id = $3 and loaded_photo_path is null', [body.p_id, body.p_path, a.unit_id])
+  return c.json({ ok: true })
+})
+
+/**
+ * Vehicle OUT. Came in empty: says whether it leaves loaded (photo required if yes).
+ * Material OUT / Scrap OUT: needs the loaded-vehicle photo, attached earlier or sent now.
+ */
 app.post('/guard/rpc/mark_vehicle_out', requireRole('guard'), async (c) => {
   const a = c.get('auth') as GuardClaims
   const body = await c.req.json().catch(() => ({})) as { p_id?: string; p_loaded?: boolean | null; p_photo?: string | null }
@@ -230,9 +245,17 @@ app.post('/guard/rpc/mark_vehicle_out', requireRole('guard'), async (c) => {
   const loaded = typeof body.p_loaded === 'boolean' ? body.p_loaded : null
   const photo = typeof body.p_photo === 'string' && body.p_photo ? body.p_photo : null
   if (photo && !(PHOTO_PATH.test(photo) && photo.startsWith(a.unit_id + '/'))) return c.json({ error: 'bad_photo_path' }, 400)
-  if (loaded === true && !photo) return c.json({ error: 'photo_required' }, 400)
   const q = await db()
-  await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = $4, out_loaded_photo_path = $5 where id = $1 and unit_id = $3 and out_at is null', [body.p_id, a.guard_id, a.unit_id, loaded, photo])
+  const [v] = await q.query<{ purpose: string; loaded_photo_path: string | null; out_at: string | null }>('select purpose, loaded_photo_path, out_at from vehicles where id = $1 and unit_id = $2', [body.p_id, a.unit_id])
+  if (!v) return c.json({ error: 'not_found' }, 404)
+  if (v.out_at) return c.json({ ok: true })
+  if (v.purpose === 'material_out' || v.purpose === 'scrap_out') {
+    if (!v.loaded_photo_path && !photo) return c.json({ error: 'photo_required' }, 400)
+    await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = true, loaded_photo_path = coalesce(loaded_photo_path, $3) where id = $1 and out_at is null', [body.p_id, a.guard_id, photo])
+    return c.json({ ok: true })
+  }
+  if (loaded === true && !photo) return c.json({ error: 'photo_required' }, 400)
+  await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = $3, out_loaded_photo_path = $4 where id = $1 and out_at is null', [body.p_id, a.guard_id, loaded, photo])
   return c.json({ ok: true })
 })
 
@@ -301,7 +324,7 @@ admin.get('/live', async (c) => {
   const q = await db()
   const [counts, movements, devices, inside, visitors, vehicles] = await Promise.all([
     q.query('select * from inside_counts'),
-    q.query(`select m.id, m.unit_id, m.direction, m.at, m.offline, m.voided_at, l.name as labourer_name, l.photo_path, g.name as guard_name
+    q.query(`select m.id, m.unit_id, m.direction, m.at, m.offline, m.voided_at, m.flag, l.name as labourer_name, l.photo_path, g.name as guard_name
              from labour_movements m join labourers l on l.id = m.labourer_id left join guards g on g.id = m.guard_id
              where m.at >= ${IST_DAY_START} order by m.at desc limit 200`),
     q.query('select id, unit_id, label, last_seen_at, active from devices order by last_seen_at desc nulls last'),

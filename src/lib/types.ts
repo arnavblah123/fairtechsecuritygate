@@ -52,6 +52,7 @@ export interface LabourMovement {
   carrying_photo_path: string | null
   voided_at: string | null
   void_reason?: string | null
+  flag?: 'double_in' | 'double_out' | null // set when the direction repeats the person's last movement
   // local only
   pending?: number // 1 = still in the outbox
   labourer_name?: string

@@ -5,6 +5,7 @@ import TopBar from '../components/TopBar'
 import { useT } from '../lib/i18n'
 import { fmtDuration, fmtTime, minutesBetween } from '../lib/time'
 import { useVehiclesInside } from './inside'
+import { needsLoadedPhoto } from './VehicleNew'
 
 export const LONG_INSIDE_MIN = 4 * 60
 
@@ -33,6 +34,7 @@ export default function VehicleHome() {
                     <div className="truncate font-mono text-xl font-bold tracking-wider">{v.plate}</div>
                     <div className="truncate text-sm text-gray-600">{[t(`vt_${v.vehicle_type}`), t(`vp_${v.purpose}`), v.driver_name].filter(Boolean).join(' · ')}</div>
                     <div className={`text-sm ${long ? 'font-bold text-red-700' : 'text-gray-600'}`}>{t('in')} {fmtTime(v.in_at)} · {fmtDuration(mins)}{long ? ` · ${t('long_inside')}` : ''}</div>
+                    {needsLoadedPhoto(v.purpose) && !v.loaded_photo_path && <div className="text-sm font-semibold text-blue-800">📷 {t('loaded_photo_pending')}</div>}
                   </div>
                   <span className="badge shrink-0 whitespace-nowrap bg-orange-100 text-base text-orange-800">{t('out')}</span>
                 </Link>

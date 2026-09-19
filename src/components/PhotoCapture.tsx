@@ -5,6 +5,7 @@ import { useT } from '../lib/i18n'
 
 /**
  * Uses the phone's native camera through <input capture>. Most reliable on basic Android.
+ * The camera opens only when the guard presses the button (autoOpen is off by default everywhere).
  * Shows a preview with Retake / OK; calls onDone with the compressed JPEG.
  */
 export default function PhotoCapture({ onDone, label, autoOpen = false }: { onDone: (blob: Blob) => void; label?: string; autoOpen?: boolean }) {

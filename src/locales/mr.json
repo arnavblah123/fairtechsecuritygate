@@ -142,5 +142,19 @@
   "office": "ऑफिस",
   "long_inside": "4 तासांपेक्षा जास्त",
   "photo": "फोटो",
-  "english_name": "इंग्रजीत नाव"
+  "english_name": "इंग्रजीत नाव",
+  "status_inside": "सध्या आत आहे · IN {t}",
+  "status_outside": "सध्या बाहेर आहे · OUT {t}",
+  "status_none": "अजून नोंद नाही",
+  "double_in_warn": "ही व्यक्ती आधीच आत आहे ({t} पासून). पुन्हा IN करायचे? ऑफिसला कळवले जाईल.",
+  "double_out_warn": "ही व्यक्ती आधीच बाहेर आहे (OUT {t}). पुन्हा OUT करायचे? ऑफिसला कळवले जाईल.",
+  "yes_continue": "हो, करा",
+  "flagged_office": "ऑफिसला कळवले आहे",
+  "flag_double_in": "आधीच आत होता, पुन्हा IN",
+  "flag_double_out": "आधीच बाहेर होता, पुन्हा OUT",
+  "loaded_photo_pending": "भरलेल्या गाडीचा फोटो बाकी",
+  "loaded_photo_later": "भरलेल्या गाडीचा फोटो OUT पूर्वी गेटवर घेतला जाईल",
+  "take_loaded_photo_first": "आधी भरलेल्या गाडीचा फोटो घ्या, मग OUT",
+  "loaded_photo_done": "भरलेल्या गाडीचा फोटो घेतला ✓",
+  "photo_only_out_later": "फोटो आता सेव्ह करा, OUT नंतर"
 }

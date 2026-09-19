@@ -18,6 +18,21 @@ export function useLabourInside(): Set<string> {
   }, [], new Set<string>())
 }
 
+export interface LabourStatus { direction: Direction; at: string }
+
+/** Last non-voided movement per labourer (today's movements plus everyone inside are cached). */
+export function useLabourStatus(): Map<string, LabourStatus> {
+  return useLiveQuery(async () => {
+    const all = await db.movements.filter((m) => !m.voided_at).toArray()
+    const latest = new Map<string, LabourStatus>()
+    for (const m of all) {
+      const cur = latest.get(m.labourer_id)
+      if (!cur || m.at > cur.at) latest.set(m.labourer_id, { direction: m.direction, at: m.at })
+    }
+    return latest
+  }, [], new Map<string, LabourStatus>())
+}
+
 export function useVisitorsInside(): Visitor[] {
   return useLiveQuery(async () => {
     const rows = await db.visitors.filter((v) => !v.out_at && !v.voided_at).toArray()
@@ -45,6 +60,7 @@ export interface TodayEntry {
   pending: boolean
   voided: boolean
   mistake: boolean
+  flag?: string | null
 }
 
 /** Today's IN / OUT events from all three registers, newest first. */
@@ -63,7 +79,7 @@ export function useTodayEntries(lang: Lang, t: (k: string, v?: Record<string, st
       out.push({
         key: `l:${m.id}`, register: 'labour', id: m.id, at: m.at, direction: m.direction,
         title: l ? localName(l, lang) : '?', subtitle: l?.contractor_name ?? '', photo: l?.photo_path ?? null, keepPhoto: true,
-        pending: m.pending === 1, voided: Boolean(m.voided_at), mistake: mistakes.has(m.id),
+        pending: m.pending === 1, voided: Boolean(m.voided_at), mistake: mistakes.has(m.id), flag: m.flag ?? null,
       })
     }
 

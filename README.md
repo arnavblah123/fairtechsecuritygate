@@ -99,6 +99,18 @@ the search box matches either script. If a generated name is wrong, correct it i
 > After pulling this change, run `db/schema.sql` again in the Neon SQL editor: it adds the `name_hi` column and fixes the
 > `stamp_entry` trigger (visitor entries failed before this fix).
 
+## Gate rules the app enforces
+- **Labour status.** The grid and the IN/OUT screen show whether the person is inside (with the IN time) or outside (last
+  OUT time). The big button is always the expected next direction. If the guard uses the small link to press IN on someone
+  already IN (or OUT on someone already OUT), the app warns him in his language and asks to confirm; the entry is then
+  saved with a `flag` (`double_in` / `double_out`), the guard sees "office has been informed", and the admin Live page
+  lists it in red. The server decides the flag from its own record, so a stale phone cannot hide or invent one.
+- **Vehicles.** Material IN needs the challan photo at entry. Material OUT / Scrap OUT are entered immediately with only
+  the plate photo; the loaded-vehicle photo is taken at the gate later (any time after loading, from the vehicle's page)
+  and OUT is not possible until it exists. No gate pass photo. A vehicle that came in empty is asked "going out loaded?"
+  at OUT (photo if yes).
+- **Camera.** Never opens by itself; the guard presses the photo button.
+
 ## How offline works
 Every tap is saved to the phone's IndexedDB first (rows and photos), then a queue uploads photos and rows in order when internet is available. The home screen shows "N to send". Entries are never dropped: a failed item stays in the queue and can be retried from the sync screen. Row ids are generated on the phone, so a retry can never create a duplicate.
 

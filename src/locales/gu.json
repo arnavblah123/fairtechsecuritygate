@@ -142,5 +142,19 @@
   "office": "ઓફિસ",
   "long_inside": "4 કલાકથી વધુ",
   "photo": "ફોટો",
-  "english_name": "અંગ્રેજીમાં નામ"
+  "english_name": "અંગ્રેજીમાં નામ",
+  "status_inside": "હાલ અંદર છે · IN {t}",
+  "status_outside": "હાલ બહાર છે · OUT {t}",
+  "status_none": "હજુ કોઈ એન્ટ્રી નથી",
+  "double_in_warn": "આ વ્યક્તિ પહેલેથી અંદર છે ({t} થી). ફરી IN કરવું? ઓફિસને જાણ થશે.",
+  "double_out_warn": "આ વ્યક્તિ પહેલેથી બહાર છે (OUT {t}). ફરી OUT કરવું? ઓફિસને જાણ થશે.",
+  "yes_continue": "હા, કરો",
+  "flagged_office": "ઓફિસને જાણ કરી છે",
+  "flag_double_in": "પહેલેથી અંદર હતો, ફરી IN",
+  "flag_double_out": "પહેલેથી બહાર હતો, ફરી OUT",
+  "loaded_photo_pending": "ભરેલી ગાડીનો ફોટો બાકી",
+  "loaded_photo_later": "ભરેલી ગાડીનો ફોટો OUT પહેલાં ગેટ પર લેવાશે",
+  "take_loaded_photo_first": "પહેલાં ભરેલી ગાડીનો ફોટો લો, પછી OUT",
+  "loaded_photo_done": "ભરેલી ગાડીનો ફોટો લીધો ✓",
+  "photo_only_out_later": "ફોટો હમણાં સેવ કરો, OUT પછી"
 }

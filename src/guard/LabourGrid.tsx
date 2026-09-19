@@ -6,15 +6,16 @@ import Photo from '../components/Photo'
 import TopBar from '../components/TopBar'
 import { db } from '../lib/db'
 import { useT } from '../lib/i18n'
+import { fmtTime } from '../lib/time'
 import { localName, nameMatches, secondaryName } from '../lib/names'
-import { useLabourInside } from './inside'
+import { useLabourStatus } from './inside'
 
 export default function LabourGrid() {
   const { t, lang } = useT()
   const nav = useNavigate()
   const [q, setQ] = useState('')
   const labourers = useLiveQuery(() => db.labourers.filter((l) => l.status === 'approved' || l.status === 'pending').sortBy('name'), [], [])
-  const inside = useLabourInside()
+  const status = useLabourStatus()
 
   const shown = q.trim() ? labourers.filter((l) => nameMatches(l, q)) : labourers
 
@@ -27,10 +28,16 @@ export default function LabourGrid() {
       <div className="grid flex-1 grid-cols-3 gap-2 px-3 pb-28 content-start">
         {shown.map((l) => {
           const second = secondaryName(l, lang)
+          const st = status.get(l.id)
+          const isIn = st?.direction === 'in'
           return (
-            <Link key={l.id} to={`/labour/${l.id}`} className={`card relative overflow-hidden ${inside.has(l.id) ? 'border-green-600' : ''}`}>
+            <Link key={l.id} to={`/labour/${l.id}`} className={`card relative overflow-hidden ${isIn ? 'border-green-600' : ''}`}>
               <Photo path={l.photo_path} keep className="aspect-square w-full object-cover" />
-              {inside.has(l.id) && <span className="absolute right-1 top-1 rounded-full bg-green-600 px-2 text-sm font-bold text-white">IN</span>}
+              {st && (
+                <span className={`absolute right-1 top-1 rounded-full px-2 text-sm font-bold text-white ${isIn ? 'bg-green-600' : 'bg-gray-500'}`}>
+                  {isIn ? 'IN' : 'OUT'} <span className="text-xs font-semibold">{fmtTime(st.at).replace(/ (am|pm)$/, '')}</span>
+                </span>
+              )}
               {l.status === 'pending' && <span className="absolute left-1 top-1 rounded-full bg-yellow-400 px-2 text-xs font-bold">NEW</span>}
               <div className="px-1 py-1 text-center leading-tight">
                 <div className="line-clamp-2 text-[16px] font-semibold">{localName(l, lang)}</div>
