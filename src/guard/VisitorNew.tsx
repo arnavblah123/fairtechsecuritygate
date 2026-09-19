@@ -61,7 +61,7 @@ export default function VisitorNew() {
     <div className="flex min-h-screen flex-col">
       <TopBar title={t('new_visitor')} onBack={back} />
       <div className="flex flex-1 flex-col gap-4 p-4">
-        {step === 'photo' && <PhotoCapture autoOpen onDone={(b) => { setPhoto(b); go('name') }} />}
+        {step === 'photo' && <PhotoCapture onDone={(b) => { setPhoto(b); go('name') }} />}
 
         {step === 'name' && (
           <>

@@ -123,6 +123,10 @@ create table if not exists labour_movements (
 create index if not exists labour_movements_unit_at on labour_movements(unit_id, at desc);
 create index if not exists labour_movements_labourer_at on labour_movements(labourer_id, at desc);
 
+-- Flagged labour movements: IN pressed while the person was already IN (double_in) or
+-- OUT while already OUT (double_out). Set by the API from the person's last movement.
+alter table labour_movements add column if not exists flag text;
+
 create table if not exists visitors (
   id uuid primary key,
   unit_id text not null references units(id),
@@ -171,11 +175,10 @@ create table if not exists vehicles (
   voided_at timestamptz,
   void_reason text,
   voided_by uuid,
-  constraint vehicles_material_in_photo check (purpose <> 'material_in' or challan_photo_path is not null),
-  constraint vehicles_material_out_photos check (
-    purpose not in ('material_out','scrap_out') or (loaded_photo_path is not null and gatepass_photo_path is not null)
-  )
+  constraint vehicles_material_in_photo check (purpose <> 'material_in' or challan_photo_path is not null)
 );
+-- Material OUT / Scrap OUT: the loaded-vehicle photo is taken at the gate before OUT, not at entry, and no gate pass photo.
+alter table vehicles drop constraint if exists vehicles_material_out_photos;
 create index if not exists vehicles_unit_in on vehicles(unit_id, in_at desc);
 create index if not exists vehicles_inside on vehicles(unit_id) where out_at is null and voided_at is null;
 
@@ -279,7 +282,7 @@ create trigger touch_labourers before update on labourers for each row execute f
 -- ---------------------------------------------------------------------------
 create or replace view labour_inside as
   select distinct on (m.labourer_id)
-    m.id, m.labourer_id, m.unit_id, m.at, m.direction, m.device_at, m.guard_id, m.carrying_photo_path,
+    m.id, m.labourer_id, m.unit_id, m.at, m.direction, m.device_at, m.guard_id, m.carrying_photo_path, m.flag,
     l.name, l.photo_path, l.contractor_id
   from labour_movements m
   join labourers l on l.id = m.labourer_id

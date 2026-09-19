@@ -19,17 +19,18 @@ export async function nextDirection(labourerId: string): Promise<Direction> {
   return last?.direction === 'in' ? 'out' : 'in'
 }
 
-export async function recordMovement(s: GuardSession, labourer: Labourer, direction: Direction): Promise<LabourMovement> {
+/** Save IN / OUT. flag = 'double_in' / 'double_out' when the guard confirmed a repeated direction; the server re-checks it. */
+export async function recordMovement(s: GuardSession, labourer: Labourer, direction: Direction, flag: LabourMovement['flag'] = null): Promise<LabourMovement> {
   const id = crypto.randomUUID()
   const at = nowIso()
   const row: LabourMovement = {
     id, unit_id: s.unitId, labourer_id: labourer.id, direction, at, device_at: at,
-    guard_id: s.guardId, carrying_photo_path: null, voided_at: null, pending: 1,
+    guard_id: s.guardId, carrying_photo_path: null, voided_at: null, flag, pending: 1,
   }
   await db.movements.put(row)
   await enqueue([{
-    id, kind: 'insert', table: 'labour_movements', label: `${direction.toUpperCase()} ${labourer.name}`,
-    payload: { id, unit_id: s.unitId, labourer_id: labourer.id, direction, device_at: at, guard_id: s.guardId, device_id: getDeviceId() },
+    id, kind: 'insert', table: 'labour_movements', label: `${direction.toUpperCase()} ${labourer.name}${flag ? ' (flagged)' : ''}`,
+    payload: { id, unit_id: s.unitId, labourer_id: labourer.id, direction, device_at: at, guard_id: s.guardId, device_id: getDeviceId(), flag },
   }])
   return row
 }
@@ -98,7 +99,7 @@ export interface NewVehicle {
   purpose: VehiclePurpose
   driver_name: string | null
 }
-export interface VehiclePhotos { plate: Blob; challan?: Blob | null; loaded?: Blob | null; gatepass?: Blob | null }
+export interface VehiclePhotos { plate: Blob; challan?: Blob | null }
 
 /** Number plate as stored: upper case, letters and digits only. */
 export const normalizePlate = (p: string) => p.toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -109,7 +110,7 @@ export async function createVehicle(s: GuardSession, v: NewVehicle, photos: Vehi
   const plate = normalizePlate(v.plate)
   const paths: Record<string, string | null> = { plate_photo_path: null, challan_photo_path: null, loaded_photo_path: null, gatepass_photo_path: null }
   const uploads: Parameters<typeof enqueue>[0] = []
-  for (const [key, blob] of [['plate_photo_path', photos.plate], ['challan_photo_path', photos.challan], ['loaded_photo_path', photos.loaded], ['gatepass_photo_path', photos.gatepass]] as const) {
+  for (const [key, blob] of [['plate_photo_path', photos.plate], ['challan_photo_path', photos.challan]] as const) {
     if (!blob) continue
     const path = newPhotoPath(s.unitId, 'vehicle')
     await storePhotoLocally(path, blob)
@@ -130,6 +131,18 @@ export async function createVehicle(s: GuardSession, v: NewVehicle, photos: Vehi
   return row
 }
 
+/** Material OUT / Scrap OUT: the loaded-vehicle photo, taken when the truck is loaded (before OUT). */
+export async function attachVehicleLoadedPhoto(s: GuardSession, id: string, blob: Blob) {
+  const path = newPhotoPath(s.unitId, 'vehicle')
+  await storePhotoLocally(path, blob)
+  await db.vehicles.update(id, { loaded_photo_path: path })
+  const v = await db.vehicles.get(id)
+  await enqueue([
+    { id: `${id}:loaded`, kind: 'upload', path, label: `Loaded photo ${v?.plate ?? ''}` },
+    { id: `${id}:loadedlink`, kind: 'rpc', fn: 'attach_vehicle_photo', payload: { p_id: id, p_path: path }, label: `Loaded photo link ${v?.plate ?? ''}` },
+  ])
+}
+
 export async function markVehicleOut(s: GuardSession, id: string, loaded: boolean | null, photo: Blob | null) {
   const at = nowIso()
   let path: string | null = null
@@ -139,7 +152,11 @@ export async function markVehicleOut(s: GuardSession, id: string, loaded: boolea
     await storePhotoLocally(path, photo)
     items.push({ id: `${id}:outphoto`, kind: 'upload', path, label: 'Loaded photo' })
   }
-  await db.vehicles.update(id, { out_at: at, out_guard_id: s.guardId, out_loaded: loaded, out_loaded_photo_path: path, out_pending: 1 })
+  const cur = await db.vehicles.get(id)
+  const materialOut = cur?.purpose === 'material_out' || cur?.purpose === 'scrap_out'
+  await db.vehicles.update(id, materialOut
+    ? { out_at: at, out_guard_id: s.guardId, out_loaded: true, loaded_photo_path: cur?.loaded_photo_path ?? path, out_pending: 1 }
+    : { out_at: at, out_guard_id: s.guardId, out_loaded: loaded, out_loaded_photo_path: path, out_pending: 1 })
   const v = await db.vehicles.get(id)
   items.push({ id: `${id}:out`, kind: 'rpc', fn: 'mark_vehicle_out', payload: { p_id: id, p_loaded: loaded, p_photo: path }, label: `Vehicle OUT ${v?.plate ?? ''}` })
   await enqueue(items)

@@ -142,5 +142,19 @@
   "office": "office",
   "long_inside": "More than 4 hours",
   "photo": "Photo",
-  "english_name": "Name in English"
+  "english_name": "Name in English",
+  "status_inside": "Inside now · IN at {t}",
+  "status_outside": "Outside · last OUT at {t}",
+  "status_none": "No entry yet",
+  "double_in_warn": "This person is ALREADY IN (since {t}). Mark IN again? The office will be informed.",
+  "double_out_warn": "This person is ALREADY OUT (last OUT {t}). Mark OUT again? The office will be informed.",
+  "yes_continue": "Yes, do it",
+  "flagged_office": "Office has been informed",
+  "flag_double_in": "IN again while already IN",
+  "flag_double_out": "OUT again while already OUT",
+  "loaded_photo_pending": "Loaded-vehicle photo pending",
+  "loaded_photo_later": "The loaded-vehicle photo is taken at the gate before OUT",
+  "take_loaded_photo_first": "Take the loaded-vehicle photo, then OUT",
+  "loaded_photo_done": "Loaded-vehicle photo taken ✓",
+  "photo_only_out_later": "Save photo now, OUT later"
 }

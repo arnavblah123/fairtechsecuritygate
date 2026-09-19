@@ -67,7 +67,7 @@ export default function Home() {
         <ul className="grid gap-2">
           {entries.map((e) => (
             <li key={e.key} className="min-w-0">
-              <Link to={`/entry/${e.register}/${e.id}`} className={`card flex items-center gap-3 p-2 ${e.voided ? 'opacity-60' : ''}`}>
+              <Link to={`/entry/${e.register}/${e.id}`} className={`card flex items-center gap-3 overflow-hidden p-2 ${e.voided ? 'opacity-60' : ''} ${e.flag ? 'border-red-400 bg-red-50' : ''}`}>
                 <Photo path={e.photo} keep={e.keepPhoto} className="thumb" />
                 <div className="min-w-0 flex-1">
                   <div className={`truncate text-lg font-semibold ${e.register === 'vehicle' ? 'font-mono tracking-wider' : ''} ${e.voided ? 'line-through' : ''}`}>{e.title}</div>
@@ -75,6 +75,7 @@ export default function Home() {
                     {fmtTime(e.at)}
                     {e.register !== 'labour' ? ` · ${t(e.register)}` : ''}
                     {e.subtitle ? ` · ${e.subtitle}` : ''}
+                    {e.flag ? ` · ⚠️ ${t(`flag_${e.flag}`)}` : ''}
                     {e.pending ? ` · ${t('pending_send')}` : ''}
                     {e.mistake ? ` · ${t('mistake_reported')}` : ''}
                     {e.voided ? ` · ${t('voided')}` : ''}

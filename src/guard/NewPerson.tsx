@@ -37,7 +37,7 @@ export default function NewPerson() {
     <div className="flex min-h-screen flex-col">
       <TopBar title={t('new_person')} onBack={back} />
       <div className="flex flex-1 flex-col gap-4 p-4">
-        {step === 'photo' && <PhotoCapture autoOpen onDone={(b) => { setPhoto(b); setStep('name') }} />}
+        {step === 'photo' && <PhotoCapture onDone={(b) => { setPhoto(b); setStep('name') }} />}
         {step === 'name' && (
           <>
             <label className="text-2xl">{t('type_name')}</label>

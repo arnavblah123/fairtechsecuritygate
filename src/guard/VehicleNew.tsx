@@ -15,14 +15,15 @@ const STEPS = ['photo', 'plate', 'type', 'purpose', 'driver', 'extra', 'saved'] 
 type Step = (typeof STEPS)[number]
 const TYPE_ICON: Record<VehicleType, string> = { truck: '🚛', tempo: '🚚', trailer: '🚜', car: '🚗', bike: '🏍️', crane_hydra: '🏗️' }
 const PURPOSE_ICON: Record<VehiclePurpose, string> = { material_in: '📦', material_out: '📤', scrap_out: '🗑️', empty: '⬜', visitor: '🧑‍💼' }
-type Extra = 'challan' | 'loaded' | 'gatepass'
+type Extra = 'challan'
 
-/** Photos the purpose requires before IN can be saved (also enforced by the database). */
+/** Photos the purpose requires before IN can be saved (also enforced by the database). The loaded-vehicle photo for
+ *  Material OUT / Scrap OUT is taken later at the gate, before OUT. */
 export function requiredPhotos(p: VehiclePurpose): Extra[] {
-  if (p === 'material_in') return ['challan']
-  if (p === 'material_out' || p === 'scrap_out') return ['loaded', 'gatepass']
-  return []
+  return p === 'material_in' ? ['challan'] : []
 }
+
+export const needsLoadedPhoto = (p: VehiclePurpose) => p === 'material_out' || p === 'scrap_out'
 
 export default function VehicleNew() {
   const { t } = useT()
@@ -56,8 +57,7 @@ export default function VehicleNew() {
     if (!platePhoto || !type || !purpose || busy) return
     setBusy(true)
     try {
-      await createVehicle(s, { plate, vehicle_type: type, purpose, driver_name: driver.trim() || null },
-        { plate: platePhoto, challan: photos.challan ?? null, loaded: photos.loaded ?? null, gatepass: photos.gatepass ?? null })
+      await createVehicle(s, { plate, vehicle_type: type, purpose, driver_name: driver.trim() || null }, { plate: platePhoto, challan: photos.challan ?? null })
       setStep('saved')
       setTimeout(() => nav('/', { replace: true }), 900)
     } finally {
@@ -80,7 +80,7 @@ export default function VehicleNew() {
   if (blocked) return <Blocked headName={s.unitHeadName} headPhone={s.unitHeadPhone} reason={blocked.reason} onBack={() => { setBlocked(null); nav('/vehicle') }} />
 
   const missing = purpose ? requiredPhotos(purpose).find((k) => !extras[k]) : undefined
-  const extraLabel: Record<Extra, string> = { challan: t('challan_photo'), loaded: t('loaded_photo'), gatepass: t('gatepass_photo') }
+  const extraLabel: Record<Extra, string> = { challan: t('challan_photo') }
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -89,7 +89,7 @@ export default function VehicleNew() {
         {step === 'photo' && (
           <>
             <p className="text-2xl">{t('plate_photo')}</p>
-            <PhotoCapture autoOpen label={t('plate_photo')} onDone={(b) => { setPlatePhoto(b); setStep('plate') }} />
+            <PhotoCapture label={t('plate_photo')} onDone={(b) => { setPlatePhoto(b); setStep('plate') }} />
           </>
         )}
 
@@ -126,6 +126,7 @@ export default function VehicleNew() {
           <>
             <label className="text-2xl">{t('type_driver_name')}</label>
             <input className="input" autoFocus autoCapitalize="words" value={driver} onChange={(e) => setDriver(e.target.value)} />
+            {purpose && needsLoadedPhoto(purpose) && <p className="rounded-2xl bg-blue-50 p-3 text-center text-lg text-blue-900">📷 {t('loaded_photo_later')}</p>}
             {purpose && requiredPhotos(purpose).length === 0 ? (
               <BigButton size="xl" variant="in" icon="⬇️" disabled={busy} onClick={afterDriver}>{t('in')}</BigButton>
             ) : (
@@ -138,7 +139,7 @@ export default function VehicleNew() {
           <>
             <p className="text-2xl">{extraLabel[missing]}</p>
             <p className="text-gray-600">{t('photo_required')}</p>
-            <PhotoCapture key={missing} autoOpen label={extraLabel[missing]} onDone={(b) => onExtra(missing, b)} />
+            <PhotoCapture key={missing} label={extraLabel[missing]} onDone={(b) => onExtra(missing, b)} />
           </>
         )}
         {step === 'extra' && !missing && <p className="text-center text-2xl">…</p>}
