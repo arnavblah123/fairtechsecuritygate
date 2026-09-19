@@ -2,6 +2,7 @@
 // Production is the master for people; the gate app keeps photos, status of
 // gate-created people, and all movements locally.
 import { db, type Row } from './db.js'
+import { nativeName } from './translit.js'
 
 export const PRODUCTION_URL_ENV = 'GATE_PRODUCTION_DATABASE_URL'
 const UNIT_BY_CODE: Record<string, string | null> = { DH2: 'dehu', SV3: 'savli', CH1: null }
@@ -46,7 +47,7 @@ export async function syncFromProduction(opts: { force?: boolean; prodQuery?: Pr
   try {
     const employees = await (opts.prodQuery ?? defaultProdQuery)()
     let added = 0, updated = 0, linked = 0
-    const existing = await q.query<Row>('select id, unit_id, name, status, external_code, skill from labourers')
+    const existing = await q.query<Row>('select id, unit_id, name, status, external_code, skill, name_hi from labourers')
     const byCode = new Map(existing.filter((l) => l.external_code).map((l) => [l.external_code as string, l]))
     const unlinked = existing.filter((l) => !l.external_code)
     for (const e of employees) {
@@ -59,20 +60,22 @@ export async function syncFromProduction(opts: { force?: boolean; prodQuery?: Pr
       const current = byCode.get(e.code)
       if (current) {
         if (current.name !== name || current.unit_id !== unit || current.status !== status || (current.skill ?? null) !== skill) {
-          await q.query('update labourers set name = $2, unit_id = $3, status = $4, skill = $5 where id = $1', [current.id, name, unit, status, skill])
+          // A changed English name gets a fresh Devanagari name; otherwise an admin correction is kept.
+          const nameHi = current.name !== name ? nativeName(name) : (current.name_hi as string | null) ?? nativeName(name)
+          await q.query('update labourers set name = $2, unit_id = $3, status = $4, skill = $5, name_hi = $6 where id = $1', [current.id, name, unit, status, skill, nameHi])
           updated++
         }
         continue
       }
       const match = unlinked.find((l) => l.unit_id === unit && (l.name as string).trim().toLowerCase() === name.toLowerCase())
       if (match) {
-        await q.query('update labourers set external_code = $2, name = $3, status = $4, skill = $5 where id = $1', [match.id, e.code, name, status, skill])
+        await q.query('update labourers set external_code = $2, name = $3, status = $4, skill = $5, name_hi = coalesce(name_hi, $6) where id = $1', [match.id, e.code, name, status, skill, nativeName(name)])
         unlinked.splice(unlinked.indexOf(match), 1)
         byCode.set(e.code, { ...match, external_code: e.code })
         linked++
         continue
       }
-      await q.query('insert into labourers (id, unit_id, name, status, external_code, skill) values ($1, $2, $3, $4, $5, $6)', [crypto.randomUUID(), unit, name, status, e.code, skill])
+      await q.query('insert into labourers (id, unit_id, name, status, external_code, skill, name_hi) values ($1, $2, $3, $4, $5, $6, $7)', [crypto.randomUUID(), unit, name, status, e.code, skill, nativeName(name)])
       added++
     }
     const at = new Date().toISOString()
@@ -85,4 +88,15 @@ export async function syncFromProduction(opts: { force?: boolean; prodQuery?: Pr
     await setSetting('prodsync.lastResult', `Error: ${error}`)
     return { ...none, error }
   }
+}
+
+/** Give every labourer without a Devanagari name one (runs once per deploy; cheap when nothing is missing). */
+let backfilled = false
+export async function backfillNativeNames(): Promise<number> {
+  if (backfilled) return 0
+  backfilled = true
+  const q = await db()
+  const rows = await q.query<{ id: string; name: string }>('select id, name from labourers where name_hi is null')
+  for (const r of rows) await q.query('update labourers set name_hi = $2 where id = $1 and name_hi is null', [r.id, nativeName(r.name)])
+  return rows.length
 }

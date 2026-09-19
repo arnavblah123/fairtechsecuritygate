@@ -1,53 +1,29 @@
 import { useState } from 'react'
-import { useLiveQuery } from 'dexie-react-hooks'
 import { Link, useNavigate } from 'react-router-dom'
 import BigButton from '../components/BigButton'
 import Photo from '../components/Photo'
 import LangToggle from '../components/LangToggle'
-import { db } from '../lib/db'
 import { useT } from '../lib/i18n'
 import { setGuardSession } from '../lib/session'
 import { guardToken } from '../lib/http'
 import { useOnline, usePendingCount } from '../lib/sync'
-import { fmtTime, istDayStart } from '../lib/time'
+import { fmtTime } from '../lib/time'
 import { useGuard } from './GuardApp'
-
-function useInsideCounts() {
-  return useLiveQuery(async () => {
-    const all = await db.movements.filter((m) => !m.voided_at).toArray()
-    const latest = new Map<string, { direction: string; at: string }>()
-    for (const m of all) {
-      const cur = latest.get(m.labourer_id)
-      if (!cur || m.at > cur.at) latest.set(m.labourer_id, { direction: m.direction, at: m.at })
-    }
-    let labour = 0
-    for (const v of latest.values()) if (v.direction === 'in') labour++
-    const server = (await db.kv.get('inside.counts'))?.value as { visitors?: number; vehicles?: number } | undefined
-    return { people: labour + (server?.visitors ?? 0), vehicles: server?.vehicles ?? 0 }
-  }, [], { people: 0, vehicles: 0 })
-}
-
-function useTodayEntries() {
-  return useLiveQuery(async () => {
-    const start = istDayStart()
-    const rows = await db.movements.where('at').aboveOrEqual(start).reverse().sortBy('at')
-    const ids = [...new Set(rows.map((r) => r.labourer_id))]
-    const labs = await db.labourers.bulkGet(ids)
-    const byId = new Map(labs.filter(Boolean).map((l) => [l!.id, l!]))
-    const mistakes = new Set((await db.mistakes.toArray()).map((m) => m.entry_id))
-    return rows.map((r) => ({ ...r, labourer_name: byId.get(r.labourer_id)?.name ?? '?', labourer_photo: byId.get(r.labourer_id)?.photo_path ?? null, mistake_reported: mistakes.has(r.id) ? 1 : 0 }))
-  }, [], [])
-}
+import { useLabourInside, useTodayEntries, useVehiclesInside, useVisitorsInside } from './inside'
 
 export default function Home() {
-  const { t } = useT()
+  const { t, lang } = useT()
   const s = useGuard()
   const nav = useNavigate()
   const online = useOnline()
   const pending = usePendingCount()
-  const counts = useInsideCounts()
-  const entries = useTodayEntries()
+  const labourInside = useLabourInside()
+  const visitorsInside = useVisitorsInside()
+  const vehiclesInside = useVehiclesInside()
+  const entries = useTodayEntries(lang, t)
   const [menu, setMenu] = useState(false)
+
+  const people = labourInside.size + visitorsInside.reduce((n, v) => n + (v.persons || 1), 0)
 
   const logout = () => {
     if (!confirm(t('logout_confirm'))) return
@@ -74,7 +50,7 @@ export default function Home() {
       <section className="mx-3 mt-3 rounded-2xl bg-blue-50 p-3 text-center">
         <div className="text-base font-semibold text-blue-900">{t('inside_now')}</div>
         <div className="text-2xl font-bold text-blue-900">
-          {counts?.people ?? 0} {t('people')} · {counts?.vehicles ?? 0} {t('vehicles')}
+          {people} {t('people')} · {vehiclesInside.length} {t('vehicles')}
         </div>
       </section>
 
@@ -90,19 +66,21 @@ export default function Home() {
         {entries.length === 0 && <p className="text-gray-500">{t('no_entries')}</p>}
         <ul className="grid gap-2">
           {entries.map((e) => (
-            <li key={e.id}>
-              <Link to={`/entry/labour/${e.id}`} className={`card flex items-center gap-3 p-2 ${e.voided_at ? 'opacity-60' : ''}`}>
-                <Photo path={e.labourer_photo} keep className="thumb" />
+            <li key={e.key} className="min-w-0">
+              <Link to={`/entry/${e.register}/${e.id}`} className={`card flex items-center gap-3 p-2 ${e.voided ? 'opacity-60' : ''}`}>
+                <Photo path={e.photo} keep={e.keepPhoto} className="thumb" />
                 <div className="min-w-0 flex-1">
-                  <div className={`truncate text-lg font-semibold ${e.voided_at ? 'line-through' : ''}`}>{e.labourer_name}</div>
-                  <div className="text-sm text-gray-600">
+                  <div className={`truncate text-lg font-semibold ${e.register === 'vehicle' ? 'font-mono tracking-wider' : ''} ${e.voided ? 'line-through' : ''}`}>{e.title}</div>
+                  <div className="truncate text-sm text-gray-600">
                     {fmtTime(e.at)}
+                    {e.register !== 'labour' ? ` · ${t(e.register)}` : ''}
+                    {e.subtitle ? ` · ${e.subtitle}` : ''}
                     {e.pending ? ` · ${t('pending_send')}` : ''}
-                    {e.mistake_reported ? ` · ${t('mistake_reported')}` : ''}
-                    {e.voided_at ? ` · ${t('voided')}` : ''}
+                    {e.mistake ? ` · ${t('mistake_reported')}` : ''}
+                    {e.voided ? ` · ${t('voided')}` : ''}
                   </div>
                 </div>
-                <span className={`badge text-base ${e.direction === 'in' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>{e.direction === 'in' ? t('in') : t('out')}</span>
+                <span className={`badge shrink-0 whitespace-nowrap text-base ${e.direction === 'in' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>{e.direction === 'in' ? t('in') : t('out')}</span>
               </Link>
             </li>
           ))}

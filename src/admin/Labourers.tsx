@@ -3,7 +3,7 @@ import { compressPhoto, newPhotoPath } from '../lib/photo'
 import { fmtDateTime } from '../lib/time'
 import { Thumb, UnitTabs, admin, errMsg, useUnit } from './lib'
 
-interface Lab { id: string; unit_id: string; name: string; contractor_id: string | null; photo_path: string | null; status: string; skill: string | null; external_code: string | null; created_at: string; created_by_guard_id: string | null }
+interface Lab { id: string; unit_id: string; name: string; name_hi: string | null; contractor_id: string | null; photo_path: string | null; status: string; skill: string | null; external_code: string | null; created_at: string; created_by_guard_id: string | null }
 interface SyncStatus { configured: boolean; lastAt: string | null; lastResult: string | null }
 interface Con { id: string; name: string; active: boolean }
 type Tab = 'approved' | 'pending' | 'inactive'
@@ -101,12 +101,13 @@ export default function Labourers() {
       </div>
 
       <table className="a-table">
-        <thead><tr><th></th><th>Name</th><th>Code / skill</th><th>Contractor</th><th>Status</th><th>Added</th><th></th></tr></thead>
+        <thead><tr><th></th><th>Name</th><th>Name in Hindi / Marathi</th><th>Code / skill</th><th>Contractor</th><th>Status</th><th>Added</th><th></th></tr></thead>
         <tbody>
           {shown.map((r) => (
             <tr key={r.id}>
               <td><Thumb path={r.photo_path} /></td>
               <td>{edit?.id === r.id && !r.external_code ? <input className="a-input" value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} /> : r.name}</td>
+              <td>{edit?.id === r.id ? <input className="a-input" lang="hi" value={edit.name_hi ?? ''} placeholder="auto" onChange={(e) => setEdit({ ...edit, name_hi: e.target.value })} title="Leave empty to regenerate from the English name" /> : (r.name_hi ?? <span className="text-gray-400">—</span>)}</td>
               <td className="text-sm text-gray-600">{r.external_code ?? ''}{r.skill ? ` · ${r.skill}` : ''}{r.external_code ? <div className="text-xs text-blue-700">from production app</div> : null}</td>
               <td>{edit?.id === r.id ? (
                 <select className="a-input" value={edit.contractor_id ?? ''} onChange={(e) => setEdit({ ...edit, contractor_id: e.target.value || null })}>
@@ -117,7 +118,7 @@ export default function Labourers() {
               <td className="whitespace-nowrap">
                 {edit?.id === r.id ? (
                   <span className="flex flex-wrap gap-1">
-                    <button type="button" className="a-btn" disabled={busy} onClick={() => { void patch(r.id, { name: edit.name.trim(), contractor_id: edit.contractor_id }); setEdit(null) }}>Save</button>
+                    <button type="button" className="a-btn" disabled={busy} onClick={() => { void patch(r.id, { ...(r.external_code ? {} : { name: edit.name.trim() }), name_hi: (edit.name_hi ?? '').trim(), contractor_id: edit.contractor_id }); setEdit(null) }}>Save</button>
                     <label className="a-btn-plain cursor-pointer">Photo<input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && void replacePhoto(r.id, e.target.files[0])} /></label>
                     {r.status === 'pending' && (
                       <>

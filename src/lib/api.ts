@@ -2,8 +2,9 @@
 import { db } from './db'
 import { enqueue } from './sync'
 import { newPhotoPath, storePhotoLocally } from './photo'
+import { nativeName } from './names'
 import { getDeviceId } from './session'
-import type { Direction, GuardSession, Labourer, LabourMovement } from './types'
+import type { Direction, GuardSession, IdType, Labourer, LabourMovement, Register, Vehicle, VehiclePurpose, VehicleType, Visitor, VisitorPurpose } from './types'
 
 const nowIso = () => new Date().toISOString()
 
@@ -47,7 +48,7 @@ export async function createLabourerAndEnter(s: GuardSession, name: string, cont
   const id = crypto.randomUUID()
   const path = newPhotoPath(s.unitId, 'labourer')
   await storePhotoLocally(path, photo, true)
-  const labourer: Labourer = { id, unit_id: s.unitId, name, contractor_id: contractorId, contractor_name: contractorName, photo_path: path, status: 'pending', updated_at: nowIso() }
+  const labourer: Labourer = { id, unit_id: s.unitId, name, name_hi: nativeName(name), contractor_id: contractorId, contractor_name: contractorName, photo_path: path, status: 'pending', updated_at: nowIso() }
   await db.labourers.put(labourer)
   await enqueue([
     { id: `${id}:photo`, kind: 'upload', path, label: `Photo ${name}` },
@@ -57,7 +58,94 @@ export async function createLabourerAndEnter(s: GuardSession, name: string, cont
   return { labourer, movement: mv }
 }
 
-export async function reportMistake(s: GuardSession, register: 'labour' | 'visitor' | 'vehicle', entryId: string, reason: string) {
+export interface NewVisitor {
+  name: string
+  company: string | null
+  purpose: VisitorPurpose
+  meeting_staff_id: string | null
+  meeting_name: string | null
+  persons: number
+  id_type: IdType
+}
+
+export async function createVisitor(s: GuardSession, v: NewVisitor, photo: Blob): Promise<Visitor> {
+  const id = crypto.randomUUID()
+  const at = nowIso()
+  const path = newPhotoPath(s.unitId, 'visitor')
+  await storePhotoLocally(path, photo)
+  const row: Visitor = {
+    id, unit_id: s.unitId, ...v, photo_path: path, in_at: at, in_guard_id: s.guardId, out_at: null, out_guard_id: null,
+    device_at: at, voided_at: null, pending: 1, out_pending: 0,
+  }
+  await db.visitors.put(row)
+  await enqueue([
+    { id: `${id}:photo`, kind: 'upload', path, label: `Photo ${v.name}` },
+    { id, kind: 'insert', table: 'visitors', label: `Visitor IN ${v.name}`, payload: { id, ...v, photo_path: path, device_at: at } },
+  ])
+  return row
+}
+
+export async function markVisitorOut(s: GuardSession, id: string) {
+  const at = nowIso()
+  await db.visitors.update(id, { out_at: at, out_guard_id: s.guardId, out_pending: 1 })
+  const v = await db.visitors.get(id)
+  await enqueue([{ id: `${id}:out`, kind: 'rpc', fn: 'mark_visitor_out', payload: { p_id: id }, label: `Visitor OUT ${v?.name ?? ''}` }])
+}
+
+export interface NewVehicle {
+  plate: string
+  vehicle_type: VehicleType
+  purpose: VehiclePurpose
+  driver_name: string | null
+}
+export interface VehiclePhotos { plate: Blob; challan?: Blob | null; loaded?: Blob | null; gatepass?: Blob | null }
+
+/** Number plate as stored: upper case, letters and digits only. */
+export const normalizePlate = (p: string) => p.toUpperCase().replace(/[^A-Z0-9]/g, '')
+
+export async function createVehicle(s: GuardSession, v: NewVehicle, photos: VehiclePhotos): Promise<Vehicle> {
+  const id = crypto.randomUUID()
+  const at = nowIso()
+  const plate = normalizePlate(v.plate)
+  const paths: Record<string, string | null> = { plate_photo_path: null, challan_photo_path: null, loaded_photo_path: null, gatepass_photo_path: null }
+  const uploads: Parameters<typeof enqueue>[0] = []
+  for (const [key, blob] of [['plate_photo_path', photos.plate], ['challan_photo_path', photos.challan], ['loaded_photo_path', photos.loaded], ['gatepass_photo_path', photos.gatepass]] as const) {
+    if (!blob) continue
+    const path = newPhotoPath(s.unitId, 'vehicle')
+    await storePhotoLocally(path, blob)
+    paths[key] = path
+    uploads.push({ id: `${id}:${key}`, kind: 'upload', path, label: `Photo ${plate}` })
+  }
+  const row: Vehicle = {
+    id, unit_id: s.unitId, plate, vehicle_type: v.vehicle_type, purpose: v.purpose, driver_name: v.driver_name,
+    plate_photo_path: paths.plate_photo_path, challan_photo_path: paths.challan_photo_path, loaded_photo_path: paths.loaded_photo_path, gatepass_photo_path: paths.gatepass_photo_path,
+    in_at: at, in_guard_id: s.guardId, out_at: null, out_guard_id: null, out_loaded: null, out_loaded_photo_path: null,
+    device_at: at, voided_at: null, pending: 1, out_pending: 0,
+  }
+  await db.vehicles.put(row)
+  await enqueue([
+    ...uploads,
+    { id, kind: 'insert', table: 'vehicles', label: `Vehicle IN ${plate}`, payload: { id, plate, vehicle_type: v.vehicle_type, purpose: v.purpose, driver_name: v.driver_name, ...paths, device_at: at } },
+  ])
+  return row
+}
+
+export async function markVehicleOut(s: GuardSession, id: string, loaded: boolean | null, photo: Blob | null) {
+  const at = nowIso()
+  let path: string | null = null
+  const items: Parameters<typeof enqueue>[0] = []
+  if (photo) {
+    path = newPhotoPath(s.unitId, 'vehicle')
+    await storePhotoLocally(path, photo)
+    items.push({ id: `${id}:outphoto`, kind: 'upload', path, label: 'Loaded photo' })
+  }
+  await db.vehicles.update(id, { out_at: at, out_guard_id: s.guardId, out_loaded: loaded, out_loaded_photo_path: path, out_pending: 1 })
+  const v = await db.vehicles.get(id)
+  items.push({ id: `${id}:out`, kind: 'rpc', fn: 'mark_vehicle_out', payload: { p_id: id, p_loaded: loaded, p_photo: path }, label: `Vehicle OUT ${v?.plate ?? ''}` })
+  await enqueue(items)
+}
+
+export async function reportMistake(s: GuardSession, register: Register, entryId: string, reason: string) {
   const id = crypto.randomUUID()
   const at = nowIso()
   await db.mistakes.put({ id, entry_id: entryId, register, reason, at })

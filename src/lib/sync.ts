@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, kvGet, kvSet } from './db'
 import { api, ApiError, guardToken, isNetworkError } from './http'
 import { prunePhotoCache } from './photo'
-import type { Contractor, Labourer, LabourMovement, OutboxItem } from './types'
+import type { BlacklistEntry, Company, Contractor, Labourer, LabourMovement, OutboxItem, Staff, Vehicle, Visitor } from './types'
 
 export type SyncState = 'idle' | 'syncing' | 'offline' | 'auth' | 'error'
 
@@ -55,6 +55,10 @@ async function runItem(item: OutboxItem): Promise<Result> {
 
 async function afterSuccess(item: OutboxItem) {
   if (item.kind === 'insert' && item.table === 'labour_movements') await db.movements.update(item.id, { pending: 0 })
+  else if (item.kind === 'insert' && item.table === 'visitors') await db.visitors.update(item.id, { pending: 0 })
+  else if (item.kind === 'insert' && item.table === 'vehicles') await db.vehicles.update(item.id, { pending: 0 })
+  else if (item.kind === 'rpc' && item.fn === 'mark_visitor_out') await db.visitors.update(item.payload!.p_id as string, { out_pending: 0 })
+  else if (item.kind === 'rpc' && item.fn === 'mark_vehicle_out') await db.vehicles.update(item.payload!.p_id as string, { out_pending: 0 })
 }
 
 /** Push queued items in order. Stops at the first transient failure to keep ordering. */
@@ -105,6 +109,20 @@ interface Bootstrap {
   mistakes: { id: string; entry_id: string; register: string; reason: string; at: string }[]
   counts: { labour: number; visitors: number; vehicles: number }
   token?: string
+  staff?: Staff[]
+  companies?: Company[]
+  visitors?: Visitor[]
+  vehicles?: Vehicle[]
+  blacklist?: BlacklistEntry[]
+}
+
+/** Replace a cached register table with the server rows, keeping local rows whose IN or OUT is still queued. */
+async function mergeRegister<T extends { id: string; pending?: number; out_pending?: number }>(table: { filter: (f: (r: T) => boolean) => { toArray: () => Promise<T[]> }; clear: () => Promise<void>; bulkPut: (rows: T[]) => Promise<unknown> }, server: T[]) {
+  const local = await table.filter((r) => r.pending === 1 || r.out_pending === 1).toArray()
+  const localById = new Map(local.map((r) => [r.id, r]))
+  await table.clear()
+  await table.bulkPut(server.map((r) => localById.get(r.id) ?? { ...r, pending: 0, out_pending: 0 }))
+  await table.bulkPut(local.filter((r) => !server.some((s) => s.id === r.id)))
 }
 
 /** Pull reference data + today's entries for the unit into the local cache. */
@@ -114,7 +132,7 @@ export async function refreshCaches(unitId: string): Promise<boolean> {
     const b = await api.get<Bootstrap>('/api/guard/bootstrap', guardToken.get())
     if (b.token) guardToken.set(b.token)
     const pendingLabourerIds = new Set((await db.outbox.where('status').anyOf('pending', 'error').toArray()).filter((o) => o.table === 'labourers').map((o) => o.id))
-    await db.transaction('rw', [db.labourers, db.contractors, db.movements, db.mistakes], async () => {
+    await db.transaction('rw', [db.labourers, db.contractors, db.movements, db.mistakes, db.visitors, db.vehicles, db.staff, db.companies, db.blacklist], async () => {
       const keepLocal = await db.labourers.filter((l) => pendingLabourerIds.has(l.id)).toArray()
       await db.labourers.clear()
       await db.labourers.bulkPut([...b.labourers, ...keepLocal])
@@ -126,6 +144,14 @@ export async function refreshCaches(unitId: string): Promise<boolean> {
       await db.movements.bulkPut(pendingMov)
       await db.mistakes.clear()
       await db.mistakes.bulkPut(b.mistakes)
+      await mergeRegister(db.visitors, b.visitors ?? [])
+      await mergeRegister(db.vehicles, b.vehicles ?? [])
+      await db.staff.clear()
+      await db.staff.bulkPut(b.staff ?? [])
+      await db.companies.clear()
+      await db.companies.bulkPut(b.companies ?? [])
+      await db.blacklist.clear()
+      await db.blacklist.bulkPut(b.blacklist ?? [])
     })
     await kvSet('cache.refreshedAt', new Date().toISOString())
     await kvSet('cache.unit', unitId)

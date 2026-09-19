@@ -88,6 +88,17 @@ The local database lives in `.local/pglite`; delete the folder to start fresh.
 ## Translations
 Edit `src/locales/hi.json`, `mr.json`, `gu.json` (and `en.json`). Keys must match `en.json`; `{n}` style placeholders are filled by the app.
 
+## Labourer names in Hindi / Marathi / Gujarati
+Every labourer has `name` (English, as in the production app) and `name_hi` (Devanagari). The API fills `name_hi`
+automatically (`api/_lib/translit.ts`: a dictionary of common Indian names plus phonetic rules) whenever a name arrives
+from the production app, the admin pages, the Import page or a guard's NEW PERSON. The phone shows the Devanagari name
+big with the English name under it when the language is Hindi or Marathi, converts it to Gujarati script for Gujarati, and
+the search box matches either script. If a generated name is wrong, correct it in **Admin → Labourers → Edit** (the
+"Name in Hindi / Marathi" column); clearing the box regenerates it.
+
+> After pulling this change, run `db/schema.sql` again in the Neon SQL editor: it adds the `name_hi` column and fixes the
+> `stamp_entry` trigger (visitor entries failed before this fix).
+
 ## How offline works
 Every tap is saved to the phone's IndexedDB first (rows and photos), then a queue uploads photos and rows in order when internet is available. The home screen shows "N to send". Entries are never dropped: a failed item stays in the queue and can be retried from the sync screen. Row ids are generated on the phone, so a retry can never create a duplicate.
 

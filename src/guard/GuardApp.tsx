@@ -12,6 +12,12 @@ import NewPerson from './NewPerson'
 import EntryDetail from './EntryDetail'
 import SyncStatus from './SyncStatus'
 import Placeholder from './Placeholder'
+import VisitorHome from './VisitorHome'
+import VisitorNew from './VisitorNew'
+import VisitorOut from './VisitorOut'
+import VehicleHome from './VehicleHome'
+import VehicleNew from './VehicleNew'
+import VehicleOut from './VehicleOut'
 
 const SessionCtx = createContext<GuardSession | null>(null)
 export function useGuard(): GuardSession {
@@ -48,10 +54,14 @@ export default function GuardApp() {
         <Route path="/labour" element={<LabourGrid />} />
         <Route path="/labour/new" element={<NewPerson />} />
         <Route path="/labour/:id" element={<LabourInOut />} />
-        <Route path="/visitor" element={<Placeholder titleKey="visitor" />} />
-        <Route path="/vehicle" element={<Placeholder titleKey="vehicle" />} />
+        <Route path="/visitor" element={<VisitorHome />} />
+        <Route path="/visitor/new" element={<VisitorNew />} />
+        <Route path="/visitor/:id" element={<VisitorOut />} />
+        <Route path="/vehicle" element={<VehicleHome />} />
+        <Route path="/vehicle/new" element={<VehicleNew />} />
+        <Route path="/vehicle/:id" element={<VehicleOut />} />
         <Route path="/emergency" element={<Placeholder titleKey="emergency" />} />
-        <Route path="/entry/labour/:id" element={<EntryDetail />} />
+        <Route path="/entry/:register/:id" element={<EntryDetail />} />
         <Route path="/sync" element={<SyncStatus />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
