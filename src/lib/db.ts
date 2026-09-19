@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Contractor, Labourer, LabourMovement, OutboxItem } from './types'
+import type { BlacklistEntry, Company, Contractor, Labourer, LabourMovement, OutboxItem, Staff, Vehicle, Visitor } from './types'
 
 export interface PhotoBlob {
   path: string
@@ -29,6 +29,11 @@ class GateDB extends Dexie {
   photos!: Table<PhotoBlob, string>
   kv!: Table<KV, string>
   mistakes!: Table<MistakeLocal, string>
+  visitors!: Table<Visitor, string>
+  vehicles!: Table<Vehicle, string>
+  staff!: Table<Staff, string>
+  companies!: Table<Company, string>
+  blacklist!: Table<BlacklistEntry, string>
 
   constructor() {
     super('fairtech-gate')
@@ -40,6 +45,13 @@ class GateDB extends Dexie {
       photos: 'path, savedAt',
       kv: 'key',
       mistakes: 'id, entry_id',
+    })
+    this.version(2).stores({
+      visitors: 'id, in_at, pending, out_pending',
+      vehicles: 'id, in_at, plate, pending, out_pending',
+      staff: 'id',
+      companies: 'id',
+      blacklist: 'id, plate, labourer_id',
     })
   }
 }
@@ -56,11 +68,7 @@ export async function kvSet(key: string, value: unknown) {
 
 /** Wipe everything except the outbox and its photos (used on logout / unit change). */
 export async function clearCaches() {
-  await db.transaction('rw', [db.labourers, db.contractors, db.movements, db.mistakes, db.kv], async () => {
-    await db.labourers.clear()
-    await db.contractors.clear()
-    await db.movements.clear()
-    await db.mistakes.clear()
-    await db.kv.clear()
+  await db.transaction('rw', [db.labourers, db.contractors, db.movements, db.mistakes, db.kv, db.visitors, db.vehicles, db.staff, db.companies, db.blacklist], async () => {
+    await Promise.all([db.labourers, db.contractors, db.movements, db.mistakes, db.kv, db.visitors, db.vehicles, db.staff, db.companies, db.blacklist].map((t) => t.clear()))
   })
 }

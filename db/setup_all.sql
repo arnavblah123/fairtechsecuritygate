@@ -239,10 +239,12 @@ begin
     new.in_at := now();
     new.out_at := null;
     new.out_guard_id := null;
-    new.out_loaded := null;
-    new.out_loaded_photo_path := null;
   else
     new.at := now();
+  end if;
+  if tg_table_name = 'vehicles' then
+    new.out_loaded := null;
+    new.out_loaded_photo_path := null;
   end if;
   if tg_table_name not in ('handovers','mistake_reports') then
     new.offline := coalesce(new.device_at, now()) < now() - interval '2 minutes';
@@ -319,6 +321,12 @@ create table if not exists settings (
   value text,
   updated_at timestamptz not null default now()
 );
+
+-- ---------------------------------------------------------------------------
+-- Names in Indian scripts: name_hi is Devanagari (Hindi / Marathi); Gujarati is
+-- derived from it on the phone. Filled automatically by the API, editable in Admin.
+-- ---------------------------------------------------------------------------
+alter table labourers add column if not exists name_hi text;
 
 -- Seed from the fairtechproduction repo (prisma/import/employees.json, the unit muster registers).
 -- Paste into the Neon SQL editor after schema.sql. Safe to re-run: names already present in the unit are skipped.

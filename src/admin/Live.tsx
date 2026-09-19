@@ -6,7 +6,10 @@ interface Counts { unit_id: string; labour: number; visitors: number; vehicles: 
 interface Row { id: string; unit_id: string; direction: string; at: string; offline: boolean; voided_at: string | null; labourer_name: string; photo_path: string | null; guard_name: string | null }
 interface Device { id: string; unit_id: string; label: string | null; last_seen_at: string | null; active: boolean }
 interface Inside { labourer_id: string; unit_id: string; name: string; photo_path: string | null; in_at: string; contractor_name: string | null }
-interface Live { counts: Counts[]; movements: Row[]; devices: Device[]; inside: Inside[] }
+interface VisitorRow { id: string; unit_id: string; name: string; company: string | null; purpose: string; meeting_name: string | null; persons: number; photo_path: string | null; in_at: string; out_at: string | null; voided_at: string | null; guard_name: string | null }
+interface VehicleRow { id: string; unit_id: string; plate: string; vehicle_type: string; purpose: string; driver_name: string | null; plate_photo_path: string | null; in_at: string; out_at: string | null; out_loaded: boolean | null; voided_at: string | null; guard_name: string | null }
+interface Live { counts: Counts[]; movements: Row[]; devices: Device[]; inside: Inside[]; visitors?: VisitorRow[]; vehicles?: VehicleRow[] }
+const label = (s: string) => s.replace(/_/g, ' ')
 
 export default function Live() {
   const [data, setData] = useState<Live | null>(null)
@@ -32,6 +35,8 @@ export default function Live() {
           const inside = (data?.inside ?? []).filter((r) => r.unit_id === u.id)
           const today = (data?.movements ?? []).filter((r) => r.unit_id === u.id)
           const dev = (data?.devices ?? []).filter((d) => d.unit_id === u.id && d.active)
+          const visitors = (data?.visitors ?? []).filter((r) => r.unit_id === u.id)
+          const vehicles = (data?.vehicles ?? []).filter((r) => r.unit_id === u.id)
           const ins = today.filter((r) => r.direction === 'in' && !r.voided_at).length
           const outs = today.filter((r) => r.direction === 'out' && !r.voided_at).length
           return (
@@ -56,7 +61,44 @@ export default function Live() {
                 </table>
               )}
 
-              <h3 className="mb-1 mt-3 font-semibold">Today's IN / OUT ({today.length})</h3>
+              <h3 className="mb-1 mt-3 font-semibold">Visitors: inside now and today ({visitors.length})</h3>
+              {visitors.length === 0 ? <p className="text-sm text-gray-500">No visitors.</p> : (
+                <table className="a-table">
+                  <thead><tr><th></th><th>Name</th><th>Company · purpose</th><th>To meet</th><th>Persons</th><th>In</th><th>Out</th><th>Guard</th></tr></thead>
+                  <tbody>
+                    {visitors.map((r) => (
+                      <tr key={r.id} className={r.voided_at ? 'line-through text-gray-400' : r.out_at ? '' : 'font-semibold'}>
+                        <td><Thumb path={r.photo_path} size={32} /></td>
+                        <td>{r.name}</td><td>{[r.company, label(r.purpose)].filter(Boolean).join(' · ')}</td><td>{r.meeting_name ?? ''}</td><td>{r.persons}</td>
+                        <td>{fmtTime(r.in_at)}</td><td>{r.out_at ? fmtTime(r.out_at) : <span className="text-green-700">inside · {fmtDuration(minutesBetween(r.in_at))}</span>}</td><td>{r.guard_name}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              <h3 className="mb-1 mt-3 font-semibold">Vehicles: inside now and today ({vehicles.length})</h3>
+              {vehicles.length === 0 ? <p className="text-sm text-gray-500">No vehicles.</p> : (
+                <table className="a-table">
+                  <thead><tr><th></th><th>Plate</th><th>Type · purpose</th><th>Driver</th><th>In</th><th>Out</th><th>Guard</th></tr></thead>
+                  <tbody>
+                    {vehicles.map((r) => {
+                      const mins = minutesBetween(r.in_at)
+                      return (
+                        <tr key={r.id} className={r.voided_at ? 'line-through text-gray-400' : r.out_at ? '' : 'font-semibold'}>
+                          <td><Thumb path={r.plate_photo_path} size={32} /></td>
+                          <td className="font-mono">{r.plate}</td><td>{label(r.vehicle_type)} · {label(r.purpose)}</td><td>{r.driver_name ?? ''}</td>
+                          <td>{fmtTime(r.in_at)}</td>
+                          <td>{r.out_at ? `${fmtTime(r.out_at)}${r.out_loaded === true ? ' (loaded)' : r.out_loaded === false ? ' (empty)' : ''}` : <span className={mins >= 240 ? 'text-red-700' : 'text-green-700'}>inside · {fmtDuration(mins)}</span>}</td>
+                          <td>{r.guard_name}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              )}
+
+              <h3 className="mb-1 mt-3 font-semibold">Labour today's IN / OUT ({today.length})</h3>
               {today.length === 0 ? <p className="text-sm text-gray-500">No entries yet today.</p> : (
                 <table className="a-table">
                   <thead><tr><th></th><th>Name</th><th>Dir</th><th>Time</th><th>Guard</th></tr></thead>

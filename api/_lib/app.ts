@@ -4,7 +4,8 @@ import { db, insertSql, isUuid, pick, updateSql, type Row } from './db.js'
 import { storage, PHOTO_PATH } from './storage.js'
 import { requireRole, signToken, type Env, type GuardClaims } from './auth.js'
 import { IST_DAY_START } from './time.js'
-import { getSyncStatus, productionConfigured, syncFromProduction } from './prodsync.js'
+import { backfillNativeNames, getSyncStatus, productionConfigured, syncFromProduction } from './prodsync.js'
+import { nativeName } from './translit.js'
 
 export const app = new Hono<Env>().basePath('/api')
 
@@ -14,6 +15,12 @@ app.onError((err, c) => {
 })
 
 const UNITS = ['dehu', 'savli']
+const VISITOR_PURPOSES = ['client', 'supplier', 'transporter', 'government', 'interview', 'other']
+const ID_TYPES = ['aadhaar', 'dl', 'company_id', 'none']
+const VEHICLE_TYPES = ['truck', 'tempo', 'trailer', 'car', 'bike', 'crane_hydra']
+const VEHICLE_PURPOSES = ['material_in', 'material_out', 'scrap_out', 'empty', 'visitor']
+/** Number plate as stored: upper case, letters and digits only. */
+const normalizePlate = (p: unknown) => (typeof p === 'string' ? p.toUpperCase().replace(/[^A-Z0-9]/g, '') : '')
 
 // ---------------------------------------------------------------------------
 // Health: open /api/health in a browser to see what is configured and whether the database answers.
@@ -100,8 +107,9 @@ app.get('/guard/bootstrap', requireRole('guard'), async (c) => {
   const q = await db()
   const u = a.unit_id
   await syncFromProduction() // at most once an hour; never throws
-  const [labourers, contractors, movements, inside, mistakes, counts, unit] = await Promise.all([
-    q.query(`select l.id, l.unit_id, l.name, l.contractor_id, c.name as contractor_name, l.photo_path, l.status, l.skill, l.external_code, l.updated_at
+  await backfillNativeNames()
+  const [labourers, contractors, movements, inside, mistakes, counts, unit, staff, companies, visitors, vehicles, blacklist] = await Promise.all([
+    q.query(`select l.id, l.unit_id, l.name, l.name_hi, l.contractor_id, c.name as contractor_name, l.photo_path, l.status, l.skill, l.external_code, l.updated_at
              from labourers l left join contractors c on c.id = l.contractor_id
              where l.unit_id = $1 and l.status in ('approved','pending') order by l.name`, [u]),
     q.query('select id, unit_id, name, active from contractors where unit_id = $1 and active order by name', [u]),
@@ -111,10 +119,17 @@ app.get('/guard/bootstrap', requireRole('guard'), async (c) => {
     q.query(`select id, entry_id, register, reason, at from mistake_reports where unit_id = $1 and at >= ${IST_DAY_START}`, [u]),
     q.query('select labour, visitors, vehicles from inside_counts where unit_id = $1', [u]),
     q.query('select id, name, default_language, unit_head_name, unit_head_phone from units where id = $1', [u]),
+    q.query('select id, unit_id, name, phone, sort_order from staff where unit_id = $1 and active order by sort_order, name', [u]),
+    q.query('select id, unit_id, name, category from companies where (unit_id = $1 or unit_id is null) and active order by name', [u]),
+    q.query(`select id, unit_id, name, company, purpose, meeting_staff_id, meeting_name, persons, id_type, photo_path, in_at, in_guard_id, out_at, out_guard_id, device_at, voided_at, void_reason
+             from visitors where unit_id = $1 and ((out_at is null and voided_at is null) or in_at >= ${IST_DAY_START} or out_at >= ${IST_DAY_START}) order by in_at desc limit 500`, [u]),
+    q.query(`select id, unit_id, plate, vehicle_type, purpose, driver_name, plate_photo_path, challan_photo_path, loaded_photo_path, gatepass_photo_path, in_at, in_guard_id, out_at, out_guard_id, out_loaded, out_loaded_photo_path, device_at, voided_at, void_reason
+             from vehicles where unit_id = $1 and ((out_at is null and voided_at is null) or in_at >= ${IST_DAY_START} or out_at >= ${IST_DAY_START}) order by in_at desc limit 500`, [u]),
+    q.query('select id, kind, labourer_id, name, plate, reason from blacklist where active and (unit_id = $1 or unit_id is null)', [u]),
   ])
   // Refresh the token when it is within 7 days of expiry.
   const token = a.exp - Date.now() / 1000 < 7 * 24 * 3600 ? await signToken({ role: 'guard', unit_id: a.unit_id, guard_id: a.guard_id, device_id: a.device_id }) : undefined
-  return c.json({ labourers, contractors, movements, inside, mistakes, counts: counts[0] ?? { labour: 0, visitors: 0, vehicles: 0 }, unit: unit[0], token })
+  return c.json({ labourers, contractors, movements, inside, mistakes, counts: counts[0] ?? { labour: 0, visitors: 0, vehicles: 0 }, unit: unit[0], token, staff, companies, visitors, vehicles, blacklist })
 })
 
 // ---------------------------------------------------------------------------
@@ -143,6 +158,7 @@ app.post('/guard/entries', requireRole('guard'), async (c) => {
     row.status = 'pending'
     row.created_by_guard_id = a.guard_id
     if (typeof row.name !== 'string' || !row.name.trim()) return c.json({ error: 'bad_request' }, 400)
+    row.name_hi = nativeName(row.name.trim())
     if (row.contractor_id != null) {
       if (!isUuid(row.contractor_id)) return c.json({ error: 'bad_request' }, 400)
       const [con] = await q.query('select 1 from contractors where id = $1 and unit_id = $2', [row.contractor_id, a.unit_id])
@@ -154,7 +170,27 @@ app.post('/guard/entries', requireRole('guard'), async (c) => {
     if (!lab) return c.json({ error: 'unknown_labourer' }, 400)
     row.guard_id = a.guard_id
     row.device_id = a.device_id
-  } else if (table === 'visitors' || table === 'vehicles') {
+  } else if (table === 'visitors') {
+    if (typeof row.name !== 'string' || !row.name.trim() || !VISITOR_PURPOSES.includes(row.purpose as string)) return c.json({ error: 'bad_request' }, 400)
+    row.name = row.name.trim()
+    row.company = typeof row.company === 'string' && row.company.trim() ? row.company.trim().slice(0, 120) : null
+    row.meeting_name = typeof row.meeting_name === 'string' && row.meeting_name.trim() ? row.meeting_name.trim().slice(0, 120) : null
+    row.id_type = ID_TYPES.includes(row.id_type as string) ? row.id_type : 'none'
+    row.persons = Math.min(50, Math.max(1, Math.round(Number(row.persons) || 1)))
+    if (row.meeting_staff_id != null) {
+      if (!isUuid(row.meeting_staff_id)) return c.json({ error: 'bad_request' }, 400)
+      const [st] = await q.query('select name from staff where id = $1 and unit_id = $2', [row.meeting_staff_id, a.unit_id])
+      if (!st) row.meeting_staff_id = null
+      else row.meeting_name ??= st.name
+    }
+    row.in_guard_id = a.guard_id
+    row.device_id = a.device_id
+  } else if (table === 'vehicles') {
+    row.plate = normalizePlate(row.plate)
+    if (!row.plate || !VEHICLE_TYPES.includes(row.vehicle_type as string) || !VEHICLE_PURPOSES.includes(row.purpose as string)) return c.json({ error: 'bad_request' }, 400)
+    if (row.purpose === 'material_in' && !row.challan_photo_path) return c.json({ error: 'photo_required' }, 400)
+    if ((row.purpose === 'material_out' || row.purpose === 'scrap_out') && (!row.loaded_photo_path || !row.gatepass_photo_path)) return c.json({ error: 'photo_required' }, 400)
+    row.driver_name = typeof row.driver_name === 'string' && row.driver_name.trim() ? row.driver_name.trim().slice(0, 120) : null
     row.in_guard_id = a.guard_id
     row.device_id = a.device_id
   } else {
@@ -173,6 +209,30 @@ app.post('/guard/rpc/attach_carrying_photo', requireRole('guard'), async (c) => 
   const q = await db()
   await q.query(`update labour_movements set carrying_photo_path = $2 where id = $1 and unit_id = $3 and direction = 'out'
                  and carrying_photo_path is null and at > now() - interval '30 minutes'`, [body.p_movement, body.p_path, a.unit_id])
+  return c.json({ ok: true })
+})
+
+/** Visitor OUT: only out_at / out_guard_id change, and only once. */
+app.post('/guard/rpc/mark_visitor_out', requireRole('guard'), async (c) => {
+  const a = c.get('auth') as GuardClaims
+  const body = await c.req.json().catch(() => ({})) as { p_id?: string }
+  if (!isUuid(body.p_id)) return c.json({ error: 'bad_request' }, 400)
+  const q = await db()
+  await q.query('update visitors set out_at = now(), out_guard_id = $2 where id = $1 and unit_id = $3 and out_at is null', [body.p_id, a.guard_id, a.unit_id])
+  return c.json({ ok: true })
+})
+
+/** Vehicle OUT. A vehicle that came in empty says whether it leaves loaded (photo required if yes). */
+app.post('/guard/rpc/mark_vehicle_out', requireRole('guard'), async (c) => {
+  const a = c.get('auth') as GuardClaims
+  const body = await c.req.json().catch(() => ({})) as { p_id?: string; p_loaded?: boolean | null; p_photo?: string | null }
+  if (!isUuid(body.p_id)) return c.json({ error: 'bad_request' }, 400)
+  const loaded = typeof body.p_loaded === 'boolean' ? body.p_loaded : null
+  const photo = typeof body.p_photo === 'string' && body.p_photo ? body.p_photo : null
+  if (photo && !(PHOTO_PATH.test(photo) && photo.startsWith(a.unit_id + '/'))) return c.json({ error: 'bad_photo_path' }, 400)
+  if (loaded === true && !photo) return c.json({ error: 'photo_required' }, 400)
+  const q = await db()
+  await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = $4, out_loaded_photo_path = $5 where id = $1 and unit_id = $3 and out_at is null', [body.p_id, a.guard_id, a.unit_id, loaded, photo])
   return c.json({ ok: true })
 })
 
@@ -239,7 +299,7 @@ admin.get('/me', (c) => c.json({ email: (c.get('auth') as { email: string }).ema
 
 admin.get('/live', async (c) => {
   const q = await db()
-  const [counts, movements, devices, inside] = await Promise.all([
+  const [counts, movements, devices, inside, visitors, vehicles] = await Promise.all([
     q.query('select * from inside_counts'),
     q.query(`select m.id, m.unit_id, m.direction, m.at, m.offline, m.voided_at, l.name as labourer_name, l.photo_path, g.name as guard_name
              from labour_movements m join labourers l on l.id = m.labourer_id left join guards g on g.id = m.guard_id
@@ -248,8 +308,14 @@ admin.get('/live', async (c) => {
     q.query(`select li.labourer_id, li.unit_id, li.name, li.photo_path, li.at as in_at, c.name as contractor_name
              from labour_inside li left join contractors c on c.id = li.contractor_id
              where li.direction = 'in' order by li.unit_id, li.name`),
+    q.query(`select v.id, v.unit_id, v.name, v.company, v.purpose, v.meeting_name, v.persons, v.photo_path, v.in_at, v.out_at, v.voided_at, g.name as guard_name
+             from visitors v left join guards g on g.id = v.in_guard_id
+             where (v.out_at is null and v.voided_at is null) or v.in_at >= ${IST_DAY_START} order by v.in_at desc limit 200`),
+    q.query(`select v.id, v.unit_id, v.plate, v.vehicle_type, v.purpose, v.driver_name, v.plate_photo_path, v.in_at, v.out_at, v.out_loaded, v.voided_at, g.name as guard_name
+             from vehicles v left join guards g on g.id = v.in_guard_id
+             where (v.out_at is null and v.voided_at is null) or v.in_at >= ${IST_DAY_START} order by v.in_at desc limit 200`),
   ])
-  return c.json({ counts, movements, devices, inside })
+  return c.json({ counts, movements, devices, inside, visitors, vehicles })
 })
 
 const unitParam = (c: { req: { query: (k: string) => string | undefined } }) => {
@@ -262,13 +328,15 @@ admin.get('/labourers', async (c) => {
   const u = unitParam(c)
   if (!u) return c.json({ error: 'bad_unit' }, 400)
   const q = await db()
-  return c.json(await q.query('select id, unit_id, name, contractor_id, photo_path, status, skill, external_code, created_at, created_by_guard_id from labourers where unit_id = $1 order by name', [u]))
+  await backfillNativeNames()
+  return c.json(await q.query('select id, unit_id, name, name_hi, contractor_id, photo_path, status, skill, external_code, created_at, created_by_guard_id from labourers where unit_id = $1 order by name', [u]))
 })
 admin.post('/labourers', async (c) => {
   const body = await c.req.json().catch(() => ({})) as Record<string, unknown>
-  const row = pick(body, ['name', 'contractor_id', 'photo_path', 'status'])
+  const row = pick(body, ['name', 'name_hi', 'contractor_id', 'photo_path', 'status'])
   if (!UNITS.includes(body.unit_id as string) || typeof row.name !== 'string' || !row.name.trim()) return c.json({ error: 'bad_request' }, 400)
   row.unit_id = body.unit_id
+  row.name_hi = typeof row.name_hi === 'string' && row.name_hi.trim() ? row.name_hi.trim() : nativeName(row.name.trim())
   row.id = crypto.randomUUID()
   row.status ??= 'approved'
   const { text, params } = insertSql('labourers', row)
@@ -279,10 +347,16 @@ admin.post('/labourers', async (c) => {
 admin.patch('/labourers/:id', async (c) => {
   const id = c.req.param('id')
   if (!isUuid(id)) return c.json({ error: 'bad_request' }, 400)
-  const patch = pick(await c.req.json().catch(() => ({})), ['name', 'contractor_id', 'photo_path', 'status'])
+  const patch = pick(await c.req.json().catch(() => ({})), ['name', 'name_hi', 'contractor_id', 'photo_path', 'status'])
+  const q = await db()
+  if (typeof patch.name === 'string' && patch.name_hi === undefined) patch.name_hi = nativeName(patch.name.trim())
+  if (typeof patch.name_hi === 'string' && !patch.name_hi.trim()) {
+    // Emptied by the admin: regenerate from the English name.
+    const name = typeof patch.name === 'string' ? patch.name : (await q.query<{ name: string }>('select name from labourers where id = $1', [id]))[0]?.name
+    patch.name_hi = name ? nativeName(name.trim()) : null
+  }
   const s = updateSql('labourers', id, patch)
   if (!s) return c.json({ ok: true })
-  const q = await db()
   await q.query(s.text, s.params)
   return c.json({ ok: true })
 })
@@ -320,6 +394,29 @@ admin.post('/contractors', async (c) => {
 admin.patch('/contractors/:id', async (c) => {
   const id = c.req.param('id')
   const s = isUuid(id) ? updateSql('contractors', id, pick(await c.req.json().catch(() => ({})), ['name', 'active'])) : null
+  if (!s) return c.json({ ok: true })
+  const q = await db()
+  await q.query(s.text, s.params)
+  return c.json({ ok: true })
+})
+
+// Staff: the visitor "whom to meet" list
+admin.get('/staff', async (c) => {
+  const u = unitParam(c)
+  if (!u) return c.json({ error: 'bad_unit' }, 400)
+  const q = await db()
+  return c.json(await q.query('select id, unit_id, name, phone, active, sort_order from staff where unit_id = $1 order by sort_order, name', [u]))
+})
+admin.post('/staff', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { unit_id?: string; name?: string; phone?: string }
+  if (!UNITS.includes(body.unit_id ?? '') || !body.name?.trim()) return c.json({ error: 'bad_request' }, 400)
+  const q = await db()
+  const [row] = await q.query('insert into staff (unit_id, name, phone) values ($1, $2, $3) on conflict (unit_id, lower(name)) do update set active = true, phone = coalesce(excluded.phone, staff.phone) returning id', [body.unit_id, body.name.trim(), body.phone?.trim() || null])
+  return c.json({ id: row.id })
+})
+admin.patch('/staff/:id', async (c) => {
+  const id = c.req.param('id')
+  const s = isUuid(id) ? updateSql('staff', id, pick(await c.req.json().catch(() => ({})), ['name', 'phone', 'active', 'sort_order'])) : null
   if (!s) return c.json({ ok: true })
   const q = await db()
   await q.query(s.text, s.params)
@@ -391,7 +488,7 @@ admin.post('/import', async (c) => {
         }
         contractorId = con.id
       }
-      await q.query('insert into labourers (id, unit_id, name, contractor_id, status) values ($1, $2, $3, $4, $5)', [crypto.randomUUID(), body.unit_id, name, contractorId, 'approved'])
+      await q.query('insert into labourers (id, unit_id, name, name_hi, contractor_id, status) values ($1, $2, $3, $4, $5, $6)', [crypto.randomUUID(), body.unit_id, name, nativeName(name), contractorId, 'approved'])
       existing.add(name.toLowerCase())
       inserted++
     }

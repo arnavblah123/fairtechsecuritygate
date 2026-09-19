@@ -2,21 +2,24 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate, useParams } from 'react-router-dom'
 import BigButton from '../components/BigButton'
+import Blocked from '../components/Blocked'
 import Photo from '../components/Photo'
 import PhotoCapture from '../components/PhotoCapture'
 import TopBar from '../components/TopBar'
 import { attachCarryingPhoto, nextDirection, recordMovement } from '../lib/api'
 import { db } from '../lib/db'
 import { useT } from '../lib/i18n'
+import { localName, secondaryName } from '../lib/names'
 import type { Direction } from '../lib/types'
 import { useGuard } from './GuardApp'
 
 export default function LabourInOut() {
-  const { t } = useT()
+  const { t, lang } = useT()
   const s = useGuard()
   const nav = useNavigate()
   const { id } = useParams()
   const labourer = useLiveQuery(() => db.labourers.get(id!), [id])
+  const blocked = useLiveQuery(() => db.blacklist.where('labourer_id').equals(id!).first(), [id])
   const [next, setNext] = useState<Direction | null>(null)
   const [saved, setSaved] = useState<{ id: string; direction: Direction } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -37,12 +40,16 @@ export default function LabourInOut() {
   }
 
   if (!labourer) return <div className="min-h-screen"><TopBar title={t('labour')} /></div>
+  if (blocked) return <Blocked headName={s.unitHeadName} headPhone={s.unitHeadPhone} reason={blocked.reason} onBack={() => nav('/labour')} />
+
+  const name = localName(labourer, lang)
+  const second = secondaryName(labourer, lang)
 
   if (saved) {
     return (
       <div className="flex min-h-screen flex-col gap-4 p-4">
         <div className={`rounded-2xl p-6 text-center text-3xl font-bold text-white ${saved.direction === 'in' ? 'bg-green-700' : 'bg-orange-600'}`}>
-          {labourer.name}<br />{saved.direction === 'in' ? t('in') : t('out')}<br />{t('saved')}
+          {name}<br />{saved.direction === 'in' ? t('in') : t('out')}<br />{t('saved')}
         </div>
         {saved.direction === 'out' && (
           <>
@@ -60,7 +67,8 @@ export default function LabourInOut() {
       <div className="flex flex-1 flex-col gap-4 p-4">
         <Photo path={labourer.photo_path} keep className="mx-auto aspect-square w-56 rounded-3xl object-cover" />
         <div className="text-center">
-          <div className="text-3xl font-bold">{labourer.name}</div>
+          <div className="text-3xl font-bold">{name}</div>
+          {second && <div className="text-lg text-gray-500">{second}</div>}
           <div className="text-xl text-gray-600">{labourer.contractor_name ?? ''}</div>
           {labourer.status === 'pending' && <div className="text-base text-yellow-700">{t('pending_approval')}</div>}
         </div>
