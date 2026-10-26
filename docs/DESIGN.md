@@ -125,7 +125,7 @@ Offline behaviour
 - **Per-entry email** (built): every labour / visitor / vehicle IN and OUT, sent by the API when the row is first stored, to `units.report_email` (Dehu: fairtechunit1@gmail.com, Savli: fairtechunit2@gmail.com; editable in Admin → Email). Logged in `email_log`.
 - **Daily report** (built; 20:00 IST via Vercel Cron `/api/cron/daily-report`, per unit, email): labour IN/OUT counts, late entries (first IN after shift start), visitors, vehicles with purpose and photo links (signed, valid 7 days), still inside, incidents, mistake reports, handover done or not.
 - **Incident alert**: email immediately (default). WhatsApp/SMS is possible via Twilio if you want it; it needs a paid account and WhatsApp template approval, so it is left as an option, not the default.
-- Email provider: a Gmail account with an app password (`GATE_GMAIL_USER`, `GATE_GMAIL_APP_PASSWORD`); any SMTP server or Resend also work. Sent by a built-in SMTP client, no extra dependency.
+- Email provider: the production app (fairtechproduction) sends every gate email with its own Gmail SMTP through `POST /api/integration/gate/notify`, keyed by `GATE_PRODUCTION_KEY` here and `GATE_EXPORT_KEY` / `INTEGRATION_EXPORT_KEY` there; recipients limited to its `GATE_MAIL_TO`.
 
 ---
 

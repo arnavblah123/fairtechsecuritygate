@@ -52,7 +52,7 @@ app.get('/health', async (c) => {
     : !config.JWT_SECRET ? 'Add GATE_JWT_SECRET (16+ characters) in Vercel → Settings → Environment Variables, then redeploy.'
     : database !== 'ok' ? 'Database error. If it says a table does not exist, run db/schema.sql in the Neon SQL editor.'
     : !config.BLOB_STORE ? 'Photos will fail until a Vercel Blob store is connected (Storage → Create → Blob), then redeploy.'
-    : !config.EMAIL ? 'Emails are off until GATE_GMAIL_USER and GATE_GMAIL_APP_PASSWORD are set (see README → Email).'
+    : !config.EMAIL ? 'Emails are off until GATE_PRODUCTION_KEY is set (the production app sends them; see README → Email).'
     : !config.PRODUCTION_LINK ? 'Optional: add GATE_PRODUCTION_DATABASE_URL to mirror labourers from the production app.' : 'All good.' }, ok ? 200 : 500)
 })
 const MAX_ATTEMPTS = 5
