@@ -31,11 +31,12 @@ export default function Email() {
     <div>
       {data && !data.mode && (
         <div className="mb-3 rounded border border-orange-300 bg-orange-50 p-2 text-sm">
-          <b>Emails are switched off.</b> In Vercel → Settings → Environment Variables add <code>GATE_GMAIL_USER</code> (the Gmail address that sends)
-          and <code>GATE_GMAIL_APP_PASSWORD</code> (its 16-letter app password from myaccount.google.com/apppasswords), then redeploy.
+          <b>Emails are switched off.</b> They are sent by the production app. In this app's Vercel project → Settings → Environment Variables
+          add <code>GATE_PRODUCTION_KEY</code> with the production app's <code>INTEGRATION_EXPORT_KEY</code> (or its <code>GATE_EXPORT_KEY</code>), then redeploy.
         </div>
       )}
-      {data?.mode && <p className="mb-2 text-sm text-gray-600">Sending through: <b>{data.mode}</b></p>}
+      {data?.mode && <p className="mb-2 text-sm text-gray-600">Sending through: <b>{data.mode === 'production' ? 'the production app (its Gmail account)' : data.mode}</b>.
+        {data.mode === 'production' && ' A new address must also be added to GATE_MAIL_TO on the production app, or it will refuse it.'}</p>}
       {error && <p className="mb-2 text-red-700">{error}</p>}
       {msg && <p className="mb-2 text-green-700">{msg}</p>}
 

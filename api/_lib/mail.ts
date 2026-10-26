@@ -1,8 +1,10 @@
-// Outgoing email. One of these, set in Vercel -> Settings -> Environment Variables:
-//   GATE_GMAIL_USER + GATE_GMAIL_APP_PASSWORD   a Gmail account and its 16-letter app password (simplest)
+// Outgoing email. Normally it goes through the production app (fairtechproduction), which sends it with its
+// own Gmail account: set GATE_PRODUCTION_KEY (the production app's GATE_EXPORT_KEY, or its INTEGRATION_EXPORT_KEY)
+// and, if the production app is not at https://fairtechproduction.vercel.app, GATE_PRODUCTION_APP_URL.
+// Alternatives, only if the production route is not used:
+//   GATE_GMAIL_USER + GATE_GMAIL_APP_PASSWORD   a Gmail account and its 16-letter app password
 //   GATE_SMTP_URL                               any SMTP server, e.g. smtps://user:pass@smtp.example.com:465
 //   GATE_RESEND_API_KEY + GATE_MAIL_FROM        Resend (needs a verified sender domain)
-// GATE_MAIL_FROM sets the sender for all three (default: the Gmail address).
 // Local dev / tests: GATE_MAIL_DIR writes each email as a file instead of sending it.
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -11,8 +13,12 @@ import { parseSmtpUrl, smtpSend, type SmtpConfig } from './smtp.js'
 export interface Mail { to: string[]; subject: string; html: string; text: string }
 export type MailResult = { ok: true } | { ok: false; error: string }
 
-export function mailMode(): 'gmail' | 'smtp' | 'resend' | 'dir' | null {
+export const PRODUCTION_APP_DEFAULT = 'https://fairtechproduction.vercel.app'
+const productionUrl = () => (process.env.GATE_PRODUCTION_APP_URL || PRODUCTION_APP_DEFAULT).replace(/\/+$/, '')
+
+export function mailMode(): 'production' | 'gmail' | 'smtp' | 'resend' | 'dir' | null {
   const e = process.env
+  if (e.GATE_PRODUCTION_KEY) return 'production'
   if (e.GATE_GMAIL_USER && e.GATE_GMAIL_APP_PASSWORD) return 'gmail'
   if (e.GATE_SMTP_URL) return 'smtp'
   if (e.GATE_RESEND_API_KEY && e.GATE_MAIL_FROM) return 'resend'
@@ -44,7 +50,7 @@ function smtpConfig(): SmtpConfig {
 /** Send one email. Never throws: a failure comes back as { ok: false, error }. */
 export async function sendMail(m: Mail): Promise<MailResult> {
   const mode = mailMode()
-  if (!mode) return { ok: false, error: 'email not configured (set GATE_GMAIL_USER and GATE_GMAIL_APP_PASSWORD)' }
+  if (!mode) return { ok: false, error: 'email not configured (set GATE_PRODUCTION_KEY to send through the production app)' }
   if (m.to.length === 0) return { ok: false, error: 'no recipient email set for this unit' }
   try {
     if (mode === 'dir') {
@@ -53,6 +59,17 @@ export async function sendMail(m: Mail): Promise<MailResult> {
       const file = join(dir, `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`)
       writeFileSync(file, JSON.stringify({ from: sender(), ...m }, null, 2))
       return { ok: true }
+    }
+    if (mode === 'production') {
+      // The production app sends it with its own SMTP; it only accepts its allowed unit inboxes (GATE_MAIL_TO there).
+      const r = await withTimeout(fetch(`${productionUrl()}/api/integration/gate/notify`, {
+        method: 'POST',
+        headers: { 'x-integration-key': process.env.GATE_PRODUCTION_KEY!, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: m.to, subject: m.subject, html: m.html }),
+      }), 20_000)
+      const j = (await r.json().catch(() => ({}))) as { sent?: boolean; error?: string }
+      if (r.ok && j.sent) return { ok: true }
+      return { ok: false, error: `production app ${r.status}: ${j.error ?? (r.status === 404 ? 'gate mail endpoint not deployed on the production app yet' : 'not sent')}`.slice(0, 500) }
     }
     if (mode === 'resend') {
       const r = await withTimeout(fetch('https://api.resend.com/emails', {

@@ -113,17 +113,26 @@ last OUT, who is still inside, visitors, vehicles, mistake reports, and any emai
 Change addresses (several: separate with commas), switch the per-entry emails off, send a test email, preview or resend
 a daily report, and see every email sent or failed under **Admin → Email**.
 
-**One-time setup in Vercel → Settings → Environment Variables, then redeploy:**
+**Emails go out through the production app** (fairtechproduction), from the same Gmail account its own reports
+use. The gate app posts each ready email to the production app's `/api/integration/gate/notify`, and the
+production app sends it with its `SMTP_USER` / `SMTP_PASS`, subject prefixed `[Gate]`.
 
-| Name | Value |
-|---|---|
-| `GATE_GMAIL_USER` | the Gmail address that sends the emails |
-| `GATE_GMAIL_APP_PASSWORD` | its 16-letter app password: turn on 2-Step Verification for that Google account, then create one at myaccount.google.com/apppasswords |
-| `CRON_SECRET` | optional: any long random text; Vercel then signs the 8 pm cron call with it |
+One-time setup, then redeploy this app:
 
-Instead of Gmail you can set `GATE_SMTP_URL` (any SMTP server, e.g. `smtps://user:pass@smtp.example.com:465`) or
-`GATE_RESEND_API_KEY` + `GATE_MAIL_FROM`. `/api/health` shows which one is active. Gmail allows about 500 emails a day
-per sending account; one email per IN and OUT stays under that for up to about 200 people a day across both units.
+| Where | Name | Value |
+|---|---|---|
+| this app (Vercel → Settings → Environment Variables) | `GATE_PRODUCTION_KEY` | the production app's `INTEGRATION_EXPORT_KEY`, or a new `GATE_EXPORT_KEY` if you set one there |
+| this app, only if production is not at fairtechproduction.vercel.app | `GATE_PRODUCTION_APP_URL` | the production app's address |
+| this app, optional | `CRON_SECRET` | any long random text; Vercel then signs the 8 pm cron call with it |
+| production app, optional | `GATE_MAIL_TO` | the inboxes the gate may mail; default `fairtechunit1@gmail.com,fairtechunit2@gmail.com` |
+
+The production app refuses any address not in its `GATE_MAIL_TO` (or `MAIL_TO`), so if you change a unit's address
+here, add it there too. `/api/health` shows the active mode, and Admin → Email shows every refused or failed email.
+Gmail allows about 500 emails a day per account, shared with the production app's own mails; one email per IN and
+OUT stays under that for up to about 150 people a day across both units.
+
+Fallbacks, only if you do not want to use the production app: `GATE_GMAIL_USER` + `GATE_GMAIL_APP_PASSWORD`, any
+`GATE_SMTP_URL`, or `GATE_RESEND_API_KEY` + `GATE_MAIL_FROM`.
 
 ## Gate rules the app enforces
 - **Labour status.** The grid and the IN/OUT screen show whether the person is inside (with the IN time) or outside (last
