@@ -11,6 +11,7 @@ import Live from './Live'
 import Companies from './Companies'
 import Import from './Import'
 import Staff from './Staff'
+import Email from './Email'
 
 export default function AdminApp() {
   const [state, setState] = useState<'loading' | 'out' | 'in'>('loading')
@@ -45,6 +46,7 @@ export default function AdminApp() {
         <NavLink to="/admin/staff" className={link}>Staff</NavLink>
         <NavLink to="/admin/companies" className={link}>Companies</NavLink>
         <NavLink to="/admin/devices" className={link}>Devices</NavLink>
+        <NavLink to="/admin/email" className={link}>Email</NavLink>
         <NavLink to="/admin/import" className={link}>Import</NavLink>
         <span className="flex-1" />
         <span className="text-sm text-gray-600">{email}</span>
@@ -56,6 +58,7 @@ export default function AdminApp() {
         <Route path="contractors" element={<Contractors />} />
         <Route path="guards" element={<Guards />} />
         <Route path="devices" element={<Devices />} />
+        <Route path="email" element={<Email />} />
         <Route path="staff" element={<Staff />} />
         <Route path="companies" element={<Companies />} />
         <Route path="import" element={<Import />} />

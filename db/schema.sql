@@ -328,3 +328,23 @@ create table if not exists settings (
 -- derived from it on the phone. Filled automatically by the API, editable in Admin.
 -- ---------------------------------------------------------------------------
 alter table labourers add column if not exists name_hi text;
+
+-- ---------------------------------------------------------------------------
+-- Email: every IN / OUT goes to the unit's report_email (comma-separated for several),
+-- plus one consolidated daily report at 20:00 IST. Change the addresses in Admin -> Email.
+-- ---------------------------------------------------------------------------
+alter table units add column if not exists notify_each boolean not null default true;
+update units set report_email = 'fairtechunit1@gmail.com' where id = 'dehu' and report_email is null;
+update units set report_email = 'fairtechunit2@gmail.com' where id = 'savli' and report_email is null;
+create table if not exists email_log (
+  id uuid primary key default gen_random_uuid(),
+  unit_id text references units(id),
+  kind text not null,
+  ref_id uuid,
+  to_email text,
+  subject text,
+  sent_at timestamptz,
+  error text,
+  created_at timestamptz not null default now()
+);
+create index if not exists email_log_created on email_log (created_at desc);

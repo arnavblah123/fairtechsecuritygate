@@ -6,6 +6,10 @@ import { requireRole, signToken, type Env, type GuardClaims } from './auth.js'
 import { IST_DAY_START } from './time.js'
 import { backfillNativeNames, getSyncStatus, productionConfigured, syncFromProduction } from './prodsync.js'
 import { nativeName } from './translit.js'
+import { mailMode, parseRecipients } from './mail.js'
+import { notifyLabourMovement, notifyVehicle, notifyVisitor, sendLogged, eventHtml } from './notify.js'
+import { buildDailyReport, sendDailyReport } from './report.js'
+import { istDate } from './time.js'
 
 export const app = new Hono<Env>().basePath('/api')
 
@@ -32,6 +36,7 @@ app.get('/health', async (c) => {
     JWT_SECRET: Boolean(jwt && jwt.length >= 16),
     PRODUCTION_LINK: productionConfigured(),
     BLOB_STORE: Boolean(process.env.BLOB_READ_WRITE_TOKEN || process.env.VERCEL_OIDC_TOKEN || process.env.STORAGE_DIR),
+    EMAIL: mailMode() ?? false,
   }
   let database = 'ok'
   let admins: number | null = null
@@ -47,6 +52,7 @@ app.get('/health', async (c) => {
     : !config.JWT_SECRET ? 'Add GATE_JWT_SECRET (16+ characters) in Vercel → Settings → Environment Variables, then redeploy.'
     : database !== 'ok' ? 'Database error. If it says a table does not exist, run db/schema.sql in the Neon SQL editor.'
     : !config.BLOB_STORE ? 'Photos will fail until a Vercel Blob store is connected (Storage → Create → Blob), then redeploy.'
+    : !config.EMAIL ? 'Emails are off until GATE_GMAIL_USER and GATE_GMAIL_APP_PASSWORD are set (see README → Email).'
     : !config.PRODUCTION_LINK ? 'Optional: add GATE_PRODUCTION_DATABASE_URL to mirror labourers from the production app.' : 'All good.' }, ok ? 200 : 500)
 })
 const MAX_ATTEMPTS = 5
@@ -200,7 +206,13 @@ app.post('/guard/entries', requireRole('guard'), async (c) => {
     if (table === 'incidents') row.device_id = a.device_id
   }
   const { text, params } = insertSql(table, row)
-  await q.query(text, params)
+  const inserted = await q.query(text + ' returning id', params)
+  // Email only when the row is new: a phone retrying the same entry never sends twice.
+  if (inserted.length) {
+    if (table === 'labour_movements') await notifyLabourMovement(row.id as string)
+    else if (table === 'visitors') await notifyVisitor(row.id as string, 'in')
+    else if (table === 'vehicles') await notifyVehicle(row.id as string, 'in')
+  }
   return c.json({ ok: true })
 })
 
@@ -220,7 +232,8 @@ app.post('/guard/rpc/mark_visitor_out', requireRole('guard'), async (c) => {
   const body = await c.req.json().catch(() => ({})) as { p_id?: string }
   if (!isUuid(body.p_id)) return c.json({ error: 'bad_request' }, 400)
   const q = await db()
-  await q.query('update visitors set out_at = now(), out_guard_id = $2 where id = $1 and unit_id = $3 and out_at is null', [body.p_id, a.guard_id, a.unit_id])
+  const done = await q.query('update visitors set out_at = now(), out_guard_id = $2 where id = $1 and unit_id = $3 and out_at is null returning id', [body.p_id, a.guard_id, a.unit_id])
+  if (done.length) await notifyVisitor(body.p_id, 'out')
   return c.json({ ok: true })
 })
 
@@ -251,12 +264,30 @@ app.post('/guard/rpc/mark_vehicle_out', requireRole('guard'), async (c) => {
   if (v.out_at) return c.json({ ok: true })
   if (v.purpose === 'material_out' || v.purpose === 'scrap_out') {
     if (!v.loaded_photo_path && !photo) return c.json({ error: 'photo_required' }, 400)
-    await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = true, loaded_photo_path = coalesce(loaded_photo_path, $3) where id = $1 and out_at is null', [body.p_id, a.guard_id, photo])
+    const done = await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = true, loaded_photo_path = coalesce(loaded_photo_path, $3) where id = $1 and out_at is null returning id', [body.p_id, a.guard_id, photo])
+    if (done.length) await notifyVehicle(body.p_id, 'out')
     return c.json({ ok: true })
   }
   if (loaded === true && !photo) return c.json({ error: 'photo_required' }, 400)
-  await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = $3, out_loaded_photo_path = $4 where id = $1 and out_at is null', [body.p_id, a.guard_id, loaded, photo])
+  const done = await q.query('update vehicles set out_at = now(), out_guard_id = $2, out_loaded = $3, out_loaded_photo_path = $4 where id = $1 and out_at is null returning id', [body.p_id, a.guard_id, loaded, photo])
+  if (done.length) await notifyVehicle(body.p_id, 'out')
   return c.json({ ok: true })
+})
+
+// ---------------------------------------------------------------------------
+// Daily report: Vercel Cron calls this at 20:00 IST (vercel.json). Each unit gets one email per day.
+// Vercel sends "Authorization: Bearer $CRON_SECRET" when CRON_SECRET is set; without it, only Vercel's cron user agent is accepted.
+// ---------------------------------------------------------------------------
+app.get('/cron/daily-report', async (c) => {
+  const secret = process.env.CRON_SECRET
+  const authOk = secret ? c.req.header('authorization') === `Bearer ${secret}` : (c.req.header('user-agent') ?? '').startsWith('vercel-cron')
+  if (!authOk) return c.json({ error: 'unauthorized' }, 401)
+  const q = await db()
+  const units = await q.query<{ id: string }>('select id from units where active order by id')
+  const day = istDate()
+  const results = []
+  for (const u of units) results.push(await sendDailyReport(u.id, day))
+  return c.json({ day, results })
 })
 
 // ---------------------------------------------------------------------------
@@ -421,6 +452,60 @@ admin.patch('/contractors/:id', async (c) => {
   const q = await db()
   await q.query(s.text, s.params)
   return c.json({ ok: true })
+})
+
+// Email settings, test email, daily report preview / send, email log
+admin.get('/email', async (c) => {
+  const q = await db()
+  const [units, log, reports] = await Promise.all([
+    q.query('select id, name, report_email, notify_each, shift_start from units order by id'),
+    q.query('select id, unit_id, kind, to_email, subject, sent_at, error, created_at from email_log order by created_at desc limit 100'),
+    q.query('select unit_id, report_date, sent_at, error from daily_reports order by report_date desc, unit_id limit 30'),
+  ])
+  return c.json({ mode: mailMode(), units, log, reports })
+})
+admin.patch('/units/:id', async (c) => {
+  const id = c.req.param('id')
+  if (!UNITS.includes(id)) return c.json({ error: 'bad_request' }, 400)
+  const patch = pick(await c.req.json().catch(() => ({})), ['report_email', 'notify_each', 'shift_start', 'unit_head_name', 'unit_head_phone'])
+  if (typeof patch.report_email === 'string') {
+    const list = parseRecipients(patch.report_email)
+    if (patch.report_email.trim() && list.length === 0) return c.json({ error: 'Not a valid email address' }, 400)
+    patch.report_email = list.join(', ') || null
+  }
+  if (patch.shift_start !== undefined && !/^\d{2}:\d{2}$/.test(String(patch.shift_start))) return c.json({ error: 'Shift start must look like 09:00' }, 400)
+  const keys = Object.keys(patch)
+  if (!keys.length) return c.json({ ok: true })
+  const q = await db()
+  await q.query(`update units set ${keys.map((k, i) => `${k} = $${i + 2}`).join(', ')} where id = $1`, [id, ...keys.map((k) => patch[k])])
+  return c.json({ ok: true })
+})
+admin.post('/email/test', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { unit?: string }
+  if (!UNITS.includes(body.unit ?? '')) return c.json({ error: 'bad_unit' }, 400)
+  const q = await db()
+  const [u] = await q.query<{ name: string; report_email: string | null }>('select name, report_email from units where id = $1', [body.unit])
+  const subject = `${u.name} · Fairtech Gate test email`
+  const r = await sendLogged(body.unit!, 'test', null, {
+    subject,
+    html: eventHtml({ text: `${u.name} · Test`, color: '#1d4ed8' }, 'Emails are working', [['Unit', u.name], ['Sent to', u.report_email], ['Sent by', (c.get('auth') as { email: string }).email]]),
+    text: `Emails are working for ${u.name}.`,
+  }, parseRecipients(u.report_email))
+  return r.ok ? c.json({ ok: true }) : c.json({ error: r.error }, 502)
+})
+admin.get('/daily-report', async (c) => {
+  const u = unitParam(c)
+  const day = c.req.query('date') ?? istDate()
+  if (!u || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return c.json({ error: 'bad_request' }, 400)
+  const r = await buildDailyReport(u, day)
+  return r ? c.json(r) : c.json({ error: 'not_found' }, 404)
+})
+admin.post('/daily-report', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { unit?: string; date?: string }
+  const day = body.date ?? istDate()
+  if (!UNITS.includes(body.unit ?? '') || !/^\d{4}-\d{2}-\d{2}$/.test(day)) return c.json({ error: 'bad_request' }, 400)
+  const r = await sendDailyReport(body.unit!, day, true)
+  return r.ok ? c.json(r) : c.json({ error: r.error }, 502)
 })
 
 // Staff: the visitor "whom to meet" list
