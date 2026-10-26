@@ -122,9 +122,10 @@ Offline behaviour
 
 ## 4. Notifications
 
-- **Daily report** (20:00 IST, per unit, email): labour IN/OUT counts, late entries (first IN after shift start), visitors, vehicles with purpose and photo links (signed, valid 7 days), still inside, incidents, mistake reports, handover done or not.
+- **Per-entry email** (built): every labour / visitor / vehicle IN and OUT, sent by the API when the row is first stored, to `units.report_email` (Dehu: fairtechunit1@gmail.com, Savli: fairtechunit2@gmail.com; editable in Admin → Email). Logged in `email_log`.
+- **Daily report** (built; 20:00 IST via Vercel Cron `/api/cron/daily-report`, per unit, email): labour IN/OUT counts, late entries (first IN after shift start), visitors, vehicles with purpose and photo links (signed, valid 7 days), still inside, incidents, mistake reports, handover done or not.
 - **Incident alert**: email immediately (default). WhatsApp/SMS is possible via Twilio if you want it; it needs a paid account and WhatsApp template approval, so it is left as an option, not the default.
-- Email provider: Resend (free tier is enough for 2 emails a day + incidents). You will need to give me a Resend API key and a verified sender domain or use their test sender.
+- Email provider: a Gmail account with an app password (`GATE_GMAIL_USER`, `GATE_GMAIL_APP_PASSWORD`); any SMTP server or Resend also work. Sent by a built-in SMTP client, no extra dependency.
 
 ---
 

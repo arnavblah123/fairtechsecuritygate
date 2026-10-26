@@ -99,6 +99,32 @@ the search box matches either script. If a generated name is wrong, correct it i
 > After pulling this change, run `db/schema.sql` again in the Neon SQL editor: it adds the `name_hi` column and fixes the
 > `stamp_entry` trigger (visitor entries failed before this fix).
 
+## Email
+Every labour, visitor and vehicle IN / OUT is emailed to the unit's address the moment the phone's entry reaches the
+server (an entry made offline is emailed when the phone syncs, marked "entered offline"). At **8:00 pm IST** each unit
+also gets one consolidated daily report: counts, flagged double IN / OUT, late arrivals, every labourer's first IN and
+last OUT, who is still inside, visitors, vehicles, mistake reports, and any emails that failed.
+
+| Unit | Default address |
+|---|---|
+| Dehu (Pune) | fairtechunit1@gmail.com |
+| Savli (Baroda) | fairtechunit2@gmail.com |
+
+Change addresses (several: separate with commas), switch the per-entry emails off, send a test email, preview or resend
+a daily report, and see every email sent or failed under **Admin → Email**.
+
+**One-time setup in Vercel → Settings → Environment Variables, then redeploy:**
+
+| Name | Value |
+|---|---|
+| `GATE_GMAIL_USER` | the Gmail address that sends the emails |
+| `GATE_GMAIL_APP_PASSWORD` | its 16-letter app password: turn on 2-Step Verification for that Google account, then create one at myaccount.google.com/apppasswords |
+| `CRON_SECRET` | optional: any long random text; Vercel then signs the 8 pm cron call with it |
+
+Instead of Gmail you can set `GATE_SMTP_URL` (any SMTP server, e.g. `smtps://user:pass@smtp.example.com:465`) or
+`GATE_RESEND_API_KEY` + `GATE_MAIL_FROM`. `/api/health` shows which one is active. Gmail allows about 500 emails a day
+per sending account; one email per IN and OUT stays under that for up to about 200 people a day across both units.
+
 ## Gate rules the app enforces
 - **Labour status.** The grid and the IN/OUT screen show whether the person is inside (with the IN time) or outside (last
   OUT time). The big button is always the expected next direction. If the guard uses the small link to press IN on someone
