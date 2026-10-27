@@ -37,8 +37,8 @@ export default function LabourInOut() {
     if (direction === 'in' && !flagged) setTimeout(() => nav('/', { replace: true }), 700)
   }
 
-  /** The small link offers the other direction. If that repeats the current status, ask first and flag it. */
-  const other = (direction: Direction) => {
+  /** The guard picks IN or OUT himself; nothing is assumed. A press that repeats the last recorded direction asks first and is flagged. */
+  const pick = (direction: Direction) => {
     if (last && last.direction === direction) setConfirmRepeat(direction)
     else void go(direction)
   }
@@ -48,7 +48,6 @@ export default function LabourInOut() {
 
   const name = localName(labourer, lang)
   const second = secondaryName(labourer, lang)
-  const next: Direction = last?.direction === 'in' ? 'out' : 'in'
 
   if (saved) {
     return (
@@ -94,14 +93,10 @@ export default function LabourInOut() {
             </div>
           </div>
         ) : (
-          <>
-            <BigButton size="xl" variant={next === 'in' ? 'in' : 'out'} icon={next === 'in' ? '⬇️' : '⬆️'} className="min-h-32 text-4xl" onClick={() => void go(next)} disabled={busy}>
-              {next === 'in' ? t('in') : t('out')}
-            </BigButton>
-            <button type="button" className="min-h-14 text-lg text-gray-500 underline" onClick={() => other(next === 'in' ? 'out' : 'in')} disabled={busy}>
-              {next === 'in' ? t('mark_out_instead') : t('mark_in_instead')}
-            </button>
-          </>
+          <div className="grid grid-cols-2 gap-3">
+            <BigButton size="xl" variant="in" icon="⬇️" className="min-h-36 flex-col gap-1 text-4xl" onClick={() => pick('in')} disabled={busy}>{t('in')}</BigButton>
+            <BigButton size="xl" variant="out" icon="⬆️" className="min-h-36 flex-col gap-1 text-4xl" onClick={() => pick('out')} disabled={busy}>{t('out')}</BigButton>
+          </div>
         )}
       </div>
     </div>
