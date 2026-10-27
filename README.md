@@ -135,9 +135,10 @@ Fallbacks, only if you do not want to use the production app: `GATE_GMAIL_USER` 
 `GATE_SMTP_URL`, or `GATE_RESEND_API_KEY` + `GATE_MAIL_FROM`.
 
 ## Gate rules the app enforces
-- **Labour status.** The grid and the IN/OUT screen show whether the person is inside (with the IN time) or outside (last
-  OUT time). The big button is always the expected next direction. If the guard uses the small link to press IN on someone
-  already IN (or OUT on someone already OUT), the app warns him in his language and asks to confirm; the entry is then
+- **Labour status.** The grid and the IN/OUT screen show the last recorded entry (IN time or last OUT time) as information
+  only. The screen always offers IN and OUT as two equal buttons and the guard picks; the app never assumes which one is
+  next (the register may start with everyone already inside). If the guard presses IN on someone whose last entry is IN
+  (or OUT after OUT), the app warns him in his language and asks to confirm; the entry is then
   saved with a `flag` (`double_in` / `double_out`), the guard sees "office has been informed", and the admin Live page
   lists it in red. The server decides the flag from its own record, so a stale phone cannot hide or invent one.
 - **Vehicles.** Material IN needs the challan photo at entry. Material OUT / Scrap OUT are entered immediately with only
